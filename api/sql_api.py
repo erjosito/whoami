@@ -1,6 +1,6 @@
 import pyodbc
 import os
-import socket
+import socket, struct
 import sys
 import time
 import warnings
@@ -89,6 +89,43 @@ def get_ip(d):
 
 app = Flask(__name__)
 
+# Return True if IP address is valid
+def is_valid_ipv4_address(address):
+    try:
+        socket.inet_pton(socket.AF_INET, address)
+    except AttributeError:  # no inet_pton here, sorry
+        try:
+            socket.inet_aton(address)
+        except socket.error:
+            return False
+        return address.count('.') == 3
+    except socket.error:  # not a valid address
+        return False
+    return True
+
+# Get IP addresses of DNS servers
+def get_dns_ips():
+    dns_ips = []
+    with open('/etc/resolv.conf') as fp:
+        for cnt, line in enumerate(fp):
+            columns = line.split()
+            if columns[0] == 'nameserver':
+                ip = columns[1:][0]
+                if is_valid_ipv4_address(ip):
+                    dns_ips.append(ip)
+    return dns_ips
+
+# Get default gateway
+def get_default_gateway():
+    """Read the default gateway directly from /proc."""
+    with open("/proc/net/route") as fh:
+        for line in fh:
+            fields = line.strip().split()
+            if fields[1] != '00000000' or not int(fields[3], 16) & 2:
+                continue
+
+            return socket.inet_ntoa(struct.pack("<L", int(fields[2], 16)))
+
 # Flask route for healthchecks
 @app.route("/healthcheck", methods=['GET'])
 def healthcheck():
@@ -127,14 +164,32 @@ def ip():
                 forwarded_for = request.headers.getlist("X-Forwarded-For")[0]
             else:
                 forwarded_for = None
+            if os.environ.get('SQL_SERVER_FQDN'):
+                sql_server_fqdn = os.environ.get('SQL_SERVER_FQDN')
+                sql_server_ip = get_ip(sql_server_fqdn)
+            else:
+                root_path = '/secrets'
+                file_name = 'SQL_SERVER_FQDN'
+                variable_path = os.path.join(root_path, file_name)
+                if os.path.isfile(variable_path):
+                    with open(variable_path, 'r') as file:
+                        sql_server_fqdn = file.read().replace('\n', '')
+                        sql_server_ip = get_ip(sql_server_fqdn)
+                else:
+                    sql_server_fqdn = None
+                    sql_server_ip = None
             msg = {
                 'my_private_ip': get_ip(socket.gethostname()),
                 'my_public_ip': mypip,
+                'my_dns_servers': get_dns_ips(),
+                'my_default_gateway': get_default_gateway(),
                 'your_address': str(request.environ.get('REMOTE_ADDR', '')),
                 'x-forwarded-for': forwarded_for,
                 'path_accessed': request.environ['HTTP_HOST'] + request.environ['PATH_INFO'],
                 'your_platform': str(request.user_agent.platform),
-                'your_browser': str(request.user_agent.browser)
+                'your_browser': str(request.user_agent.browser),
+                'sql_server_fqdn': str(sql_server_fqdn),
+                'sql_server_ip': str(sql_server_ip)
             }          
             return jsonify(msg)
         except Exception as e:
