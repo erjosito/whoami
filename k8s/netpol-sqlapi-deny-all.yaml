@@ -1,0 +1,11 @@
+kind: NetworkPolicy
+apiVersion: networking.k8s.io/v1
+metadata:
+  name: sqlapi-deny-all
+spec:
+  podSelector:
+    matchLabels:
+      run: sqlapi
+  policyTypes:   
+  - Ingress   
+  - Egress
