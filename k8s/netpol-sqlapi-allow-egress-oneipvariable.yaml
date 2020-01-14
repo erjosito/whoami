@@ -11,4 +11,4 @@ spec:
   egress:
   - to:
     - ipBlock:
-        cidr: 45.79.77.20/32
+        cidr: {{ip_address}}/32

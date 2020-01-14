@@ -349,17 +349,19 @@ az aks list -g $rg -o table
 Once the AKS has been deployed successfully, you can start deploying the API containers as pods, as well as a service exposing the deployment:
 
 ```shell
-# Deploy API pods
+# Deploy pods in namespace privatelink
 az aks get-credentials -g $rg -n $aks_name --overwrite
-kubectl run sqlapi --image=erjosito/sqlapi:0.1 --replicas=2 --env="SQL_SERVER_USERNAME=$sql_username" --env="SQL_SERVER_PASSWORD=$sql_password" --env="SQL_SERVER_FQDN=${sql_endpoint_ip}" --port=8080
-kubectl expose deploy/sqlapi --name=sqlapi --port=8080 --type=LoadBalancer
+ns1_name=privatelink
+kubectl create namespace $ns1_name
+kubectl -n $ns1_name run sqlapi --image=erjosito/sqlapi:0.1 --replicas=2 --env="SQL_SERVER_USERNAME=$sql_username" --env="SQL_SERVER_PASSWORD=$sql_password" --env="SQL_SERVER_FQDN=${sql_endpoint_ip}" --port=8080
+kubectl -n $ns1_name expose deploy/sqlapi --name=sqlapi --port=8080 --type=LoadBalancer
 ```
 
 Now we can verify whether the API is working (note that AKS will need 30-60 seconds to provision a public IP for the Kubernetes service, so the following commands might not work at the first attempt):
 
 ```shell
 # Get API service public IP
-aks_sqlapi_ip=$(kubectl get svc/sqlapi -o json | jq -rc '.status.loadBalancer.ingress[0].ip' 2>/dev/null)
+aks_sqlapi_ip=$(kubectl -n $ns1_name get svc/sqlapi -o json | jq -rc '.status.loadBalancer.ingress[0].ip' 2>/dev/null)
 curl "http://${aks_sqlapi_ip}:8080/healthcheck"
 ```
 
@@ -387,15 +389,15 @@ Now we can deploy the web frontend pod. Note that as FQDN for the API pod we are
 
 ```shell
 # Deploy Web frontend pods
-kubectl run sqlweb --image=erjosito/whoami:0.1 --replicas=2 --env="API_URL=http://sqlapi:8080" --port=80
-kubectl expose deploy/sqlweb --name=sqlweb --port=80 --type=LoadBalancer
+kubectl -n $ns1_name run sqlweb --image=erjosito/whoami:0.1 --replicas=2 --env="API_URL=http://sqlapi:8080" --port=80
+kubectl -n $ns1_name expose deploy/sqlweb --name=sqlweb --port=80 --type=LoadBalancer
 ```
 
 When the Web service gets a public IP address, you can connect to it over a Web browser:
 
 ```shell
 # Get web frontend's public IP
-aks_sqlweb_ip=$(kubectl get svc/sqlweb -o json | jq -rc '.status.loadBalancer.ingress[0].ip' 2>/dev/null)
+aks_sqlweb_ip=$(kubectl -n $ns1_name get svc/sqlweb -o json | jq -rc '.status.loadBalancer.ingress[0].ip' 2>/dev/null)
 echo "Point your web browser to http://${aks_sqlweb_ip}"
 ```
 
@@ -414,6 +416,27 @@ vm_size=Standard_D2_v3
 vm_pip_name=${vm_name}-pip
 az network vnet subnet create -g $rg --vnet-name $vnet_name -n $subnet_vm_name --address-prefix $subnet_vm_prefix
 az vm create -n $vm_name -g $rg --vnet-name $vnet_name --subnet $subnet_vm_name --public-ip-address $vm_pip_name --generate-ssh-keys --image ubuntuLTS --priority Low --size $vm_size --no-wait
+```
+
+We will create another app instance in a different namespace, that we will call `publicip`:
+
+```shell
+# Create namespace for app instance using the public IP of the SQL Server
+ns2_name=publicip
+kubectl create namespace $ns2_name
+sql_server_fqdn=$(az sql server show -n $sql_server_name -g $rg -o tsv --query fullyQualifiedDomainName)
+kubectl -n $ns2_name run sqlapi --image=erjosito/sqlapi:0.1 --replicas=2 --env="SQL_SERVER_USERNAME=$sql_username" --env="SQL_SERVER_PASSWORD=$sql_password" --env="SQL_SERVER_FQDN=${sql_server_fqdn}" --port=8080
+kubectl -n $ns2_name expose deploy/sqlapi --name=sqlapi --port=8080 --type=LoadBalancer
+kubectl -n $ns2_name run sqlweb --image=erjosito/whoami:0.1 --replicas=2 --env="API_URL=http://sqlapi:8080" --port=80
+kubectl -n $ns2_name expose deploy/sqlweb --name=sqlweb --port=80 --type=LoadBalancer
+```
+
+Let's verify that the new app instance is working:
+
+```shell
+# Get web frontend's public IP
+aks_sqlweb_ip=$(kubectl -n $ns2_name get svc/sqlweb -o json | jq -rc '.status.loadBalancer.ingress[0].ip' 2>/dev/null)
+echo "Point your web browser to http://${aks_sqlweb_ip}"
 ```
 
 First, we will start by focusing on the API pods. Let's verify that this pod has inbound and outbound connectivity. For inbound connectivity we can access the pod from the test VM we created. For outbound we can just run a curl to the service `http://ifconfig.co`, which will return our public IP address (the value is not important, only that there is an answer at all):
@@ -447,7 +470,16 @@ Let's test out of curiosity whether DNS resolution follows a different pattern t
 kubectl exec -it $pod_id -- nslookup docs.microsoft.com
 ```
 
-Now you can add a second policy that will allow egress communication, we can verify whether the policies are additive:
+Now you can add a second policy that will allow egress communication to a specific website (`ifconfig.co` in this case), we can verify whether it is working:
+
+```shell
+# Deny all traffic to/from API pods
+kubectl apply -f "${base_url}/netpol-sqlapi-allow-egress-ifconfigco.yaml"
+# Verify inbound connectivity (it should NOT work and timeout, feel free to Ctrl-C the operation)
+ssh $vm_pip "curl -s http://${pod_ip}:8080/healthcheck"
+# Verify outbound connectivity (it should NOT work and timeout, feel free to Ctrl-C the operation)
+kubectl exec -it $pod_id -- curl ifconfig.co
+```
 
 ```shell
 # Allow egress traffic from API pods
