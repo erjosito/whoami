@@ -9,7 +9,7 @@ Note that the images are pretty large, since they are based on standard ubuntu a
 
 The labs described below include how to deploy these containers in different form factors:
 
-* [Lab 1: Azure Container Instances with public IP addresses](lab1)
+* [Lab 1: Azure Container Instances with public IP addresses](#lab1)
 * Azure Container Instances with private IP addresses
 * Pods in an Azure Kubernetes Services cluster
 * Azure Web Application with public IP addresses
@@ -59,7 +59,7 @@ Create an Azure SQL database:
 
 ```shell
 # Resource Group
-rg=acitest
+rg=containerlab
 location=westeurope
 az group create -n $rg -l $location
 # SQL Server and Database
@@ -109,7 +109,7 @@ We will start creating an Azure database, as in the previous lab:
 
 ```shell
 # Resource Group
-rg=acitest
+rg=containerlab
 location=westeurope
 az group create -n $rg -l $location
 # SQL Server and database
@@ -157,7 +157,7 @@ echo "Private IP address for SQL server ${sql_server_name}: ${sql_endpoint_ip}"
 nslookup ${sql_server_name}.privatelink.database.windows.net
 ```
 
-Now we can create the Azure Container Instances in the vnet subnet, pointing to the private IP address (if you want to know why we are not using the FQDN, check out the next section on private DNS). We will use the vnet and subnet IDs (and not the names) to avoid ambiguity:
+Now we can create the Azure Container Instances in the vnet subnet, pointing to the private IP address (if you want to know why we are not using the FQDN, check out the next section on private DNS). We will use the vnet and subnet IDs (and not the vnet/subnet names) to avoid ambiguity:
 
 ```shell
 # Create ACI for API
@@ -183,13 +183,24 @@ vm_pip=$(az network public-ip show  -g $rg -n $vm_pip_name --query ipAddress -o 
 Now we can run commands over the test VM to verify the container is working:
 
 ```shell
+# Verify connectivity from the VM to the container
 aci_sqlapi_ip=$(az container show -n api -g $rg --query 'ipAddress.ip' -o tsv)
+echo "Azure Container instance assigned IP address ${aci_sqlapi_ip}. If this is not contained in the subnet ${subnet_aci_prefix} you might want to recreate the container"
 ssh $vm_pip "curl -s http://${aci_sqlapi_ip}:8080/healthcheck"
+```
+
+If the container was not created with the proper IP, you can just recreate it:
+
+```shell
+# Redeploy ACI
+az container delete -n api -g $rg -y
+az container create -n api -g $rg -e "SQL_SERVER_USERNAME=$sql_username" "SQL_SERVER_PASSWORD=$sql_password" "SQL_SERVER_FQDN=${sql_endpoint_ip}" --image erjosito/sqlapi:0.1 --ip-address private --ports 8080 --vnet $vnet_id --subnet $subnet_aci_id
 ```
 
 We need to include the private iP address of the container in the SQL Server firewall rules:
 
 ```shell
+# Add Firewall rule (is this required????)
 az sql server firewall-rule create -g $rg -s $sql_server_name -n aci-sqlapi-source --start-ip-address $aci_sqlapi_ip --end-ip-address $aci_sqlapi_ip
 ```
 
@@ -274,9 +285,9 @@ Here you can see a sample output showing that auto-registration for ACI is not w
 $ az network private-dns record-set list -z $dns_zone_name -g $rg -o table
 Name           ResourceGroup    Ttl    Type    AutoRegistered    Metadata
 -------------  ---------------  -----  ------  ----------------  ----------
-@              acitest          3600   SOA     False
-myserver14591  acitest          3600   A       False
-testvm         acitest          10     A       True
+@              containerlab     3600   SOA     False
+myserver14591  containerlab     3600   A       False
+testvm         containerlab     10     A       True
 ```
 
 If you want to remove the DNS link from the vnet for troubleshooting purposes, you can use this command:
@@ -292,7 +303,7 @@ For this lab we will use Azure Kubernetes Service (AKS). The first thing we need
 
 ```shell
 # Resource group
-rg=akstest
+rg=containerlab
 location=westeurope
 sql_server_name=myserver$RANDOM
 az group create -n $rg -l $location
@@ -306,11 +317,11 @@ subnet_sql_prefix=192.168.2.0/24
 az network vnet create -g $rg -n $vnet_name --address-prefix $vnet_prefix -l $location
 az network vnet subnet create -g $rg --vnet-name $vnet_name -n $subnet_aks_name --address-prefix $subnet_aks_prefix
 az network vnet subnet create -g $rg --vnet-name $vnet_name -n $subnet_sql_name --address-prefix $subnet_sql_prefix
-# AKS
+# AKS (Azure CNI plugin, Azure network policy)
 aks_name=aks
 aks_node_size=Standard_B2ms
 aks_subnet_id=$(az network vnet subnet show -n $subnet_aks_name --vnet-name $vnet_name -g $rg --query id -o tsv)
-az aks create -n $aks_name -g $rg -c 1 -s $aks_node_size --generate-ssh-keys --network-plugin azure --vnet-subnet-id $aks_subnet_id --no-wait
+az aks create -n $aks_name -g $rg -c 1 -s $aks_node_size --generate-ssh-keys --network-plugin azure --network-policy azure --vnet-subnet-id $aks_subnet_id --no-wait
 # Azure SQL
 sql_db_name=mydb
 sql_username=azure
@@ -325,11 +336,13 @@ az network vnet subnet update -n $subnet_sql_name -g $rg --vnet-name $vnet_name 
 az network private-endpoint create -n $endpoint_name -g $rg --vnet-name $vnet_name --subnet $subnet_sql_name --private-connection-resource-id $sql_server_id --group-ids sqlServer --connection-name sqlConnection
 nic_id=$(az network private-endpoint show -n $endpoint_name -g $rg --query 'networkInterfaces[0].id' -o tsv)
 sql_endpoint_ip=$(az network nic show --ids $nic_id --query 'ipConfigurations[0].privateIpAddress' -o tsv)
+echo "The SQL Server is reachable over the private IP address ${sql_endpoint_ip}"
 ```
 
 Note that we deployed our AKS cluster with the `--no-wait` flag, verify that the deployment status is `Succeeded`:
 
 ```shell
+# Verify that AKS cluster is created
 az aks list -g $rg -o table
 ```
 
@@ -403,7 +416,7 @@ az network vnet subnet create -g $rg --vnet-name $vnet_name -n $subnet_vm_name -
 az vm create -n $vm_name -g $rg --vnet-name $vnet_name --subnet $subnet_vm_name --public-ip-address $vm_pip_name --generate-ssh-keys --image ubuntuLTS --priority Low --size $vm_size --no-wait
 ```
 
-First, we will start by focusing on the API pods. Let's verify that this pod has inbound and outbound connectivity. For inbound connectivity we can access the pod from the test VM we created. For outbound we can just run a ping from the pod itself:
+First, we will start by focusing on the API pods. Let's verify that this pod has inbound and outbound connectivity. For inbound connectivity we can access the pod from the test VM we created. For outbound we can just run a curl to the service `http://ifconfig.co`, which will return our public IP address (the value is not important, only that there is an answer at all):
 
 ```shell
 # Verify inbound connectivity
@@ -412,20 +425,19 @@ pod_ip=$(kubectl get pod -o wide -l run=sqlapi -o json | jq -r '.items[0].status
 ssh $vm_pip "curl -s http://${pod_ip}:8080/healthcheck"
 # Verify outbound connectivity
 pod_id=$(kubectl get pod -l run=sqlapi -o json | jq -r '.items[0].metadata.name')
-kubectl exec -it $pod_id -- ping 8.8.8.8
+kubectl exec -it $pod_id -- curl ifconfig.co
 ```
 
 Our first action will be denying all network communication, and verifying:
 
 ```shell
 # Deny all traffic to/from API pods
-base_url="https://raw.githubusercontent.com/erjosito/whoami/k8s"
+base_url="https://raw.githubusercontent.com/erjosito/whoami/master/k8s"
 kubectl apply -f "${base_url}/netpol-sqlapi-deny-all.yaml"
-pod_id=$(kubectl get pod -l run=sqlapi -o json | jq -r '.items[0].metadata.name')
-# Verify inbound connectivity
-ssh $vm_pip "curl http://${pod_ip}:8080/healthcheck"
-# Verify outbound connectivity
-kubectl exec -it $pod_id -- ping 8.8.8.8
+# Verify inbound connectivity (it should NOT work and timeout, feel free to Ctrl-C the operation)
+ssh $vm_pip "curl -s http://${pod_ip}:8080/healthcheck"
+# Verify outbound connectivity (it should NOT work and timeout, feel free to Ctrl-C the operation)
+kubectl exec -it $pod_id -- curl ifconfig.co
 ```
 
 Let's test out of curiosity whether DNS resolution follows a different pattern than standard network communication:
@@ -471,7 +483,7 @@ For this lab we will use Azure Application Services for Linux. Let us create a r
 
 ```shell
 # Resource group
-rg=webapptest
+rg=containerlab
 location=westeurope
 sql_server_name=myserver$RANDOM
 az group create -n $rg -l $location

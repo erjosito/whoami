@@ -1,16 +1,18 @@
 kind: NetworkPolicy
 apiVersion: networking.k8s.io/v1
 metadata:
-  name: web-allow-all
+  name: sqlapi-allow-some
 spec:
   podSelector:
     matchLabels:
       run: sqlapi
   policyTypes:   
-  - Ingress   
   - Egress
   ingress:
-    - {}
+  - namespaceSelector:
+      matchLabels:
+        namespace: default
   egress:
-    - {}
-      
+  - to:
+    - ipBlock:
+        cidr: 45.79.77.20/32
