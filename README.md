@@ -9,11 +9,13 @@ Note that the images are pretty large, since they are based on standard ubuntu a
 
 The labs described below include how to deploy these containers in different form factors:
 
-* [Lab 1: Azure Container Instances with public IP addresses](#lab1)
-* Azure Container Instances with private IP addresses
-* Pods in an Azure Kubernetes Services cluster
-* Azure Web Application with public IP addresses
-* Azure Web Application with Vnet integration
+* [Lab 1: Docker running locally](#lab1)
+* [Lab 2: Azure Container Instances with public IP addresses](#lab2)
+* [Lab 3: Azure Container Instances with private IP addresses](#lab3)
+* [Lab 4: Pods in an Azure Kubernetes Services cluster](#lab4)
+* [Lab 5: Azure Web Application with public IP addresses](#lab5)
+  * [Lab 5.1: Azure Web Application with Vnet integration (NOT AVAILABLE YET)](#lab5.1)
+  * [Lab 5.2: Azure Web App with private link for frontend (NOT AVAILABLE YET)](#lab5.2)
 
 ## SQL API
 
@@ -53,7 +55,7 @@ docker run -d -p 8080:8080 -e SQL_SERVER_FQDN=172.17.0.2 -e SQL_SERVER_USERNAME=
 docker run -d -p 8081:80 -e API_URL=http://172.17.0.3:8080 --name web erjosito/whoami:0.1
 ```
 
-## Lab 2: Azure Container Instances (public IP addresses)
+## Lab 2: Azure Container Instances (public IP addresses)<a name="lab2"></a>
 
 Create an Azure SQL database:
 
@@ -101,7 +103,7 @@ echo "Please connect your browser to http://${web_ip} to test the correct deploy
 
 Notice how the Web frontend is able to reach the SQL database through the API.
 
-## Lab 3: Azure Container Instances (in a Virtual Network)
+## Lab 3: Azure Container Instances (in a Virtual Network)<a name="lab3"></a>
 
 Create an Azure SQL database:
 
@@ -220,7 +222,7 @@ ssh $vm_pip "curl -s http://${aci_web_ip}/healthcheck"
 ssh $vm_pip "curl -s http://${aci_web_ip}"
 ```
 
-### Lab 3.1 - Azure DNS and ACI not working together yet
+### Lab 3.1 - Azure DNS and ACI not working together yet<a name="lab3.1"></a>
 
 At this point in time, name resolution using Azure DNS private zones does not work. We can optionally use a private DNS zone for name resolution, and create a recordset in out private zone:
 
@@ -297,7 +299,7 @@ If you want to remove the DNS link from the vnet for troubleshooting purposes, y
 az network private-dns link vnet delete -g $rg -z $dns_zone_name -n myDnsLink -y
 ```
 
-## Lab 4. AKS cluster in a Virtual Network
+## Lab 4. AKS cluster in a Virtual Network<a name="lab4"></a>
 
 For this lab we will use Azure Kubernetes Service (AKS). The first thing we need is a cluster. We will deploy an AKS cluster in our own vnet, so we will create the vnet first. We will create the SQL private endpoint as in lab 3 as well:
 
@@ -401,7 +403,7 @@ aks_sqlweb_ip=$(kubectl -n $ns1_name get svc/sqlweb -o json | jq -rc '.status.lo
 echo "Point your web browser to http://${aks_sqlweb_ip}"
 ```
 
-### Lab 4.1: protect the AKS cluster with network policies
+### Lab 4.1: protect the AKS cluster with network policies - WORK IN PROGRESS
 
 As our AKS cluster stands, anybody can connect to both the web frontend and the API pods. In Kubernetes you can use Network Policies to restrict ingress or egress connectivity for a container. Sample network policies are provided in this repository, in the [k8s](k8s) directory.
 
@@ -431,6 +433,15 @@ kubectl -n $ns2_name run sqlweb --image=erjosito/whoami:0.1 --replicas=2 --env="
 kubectl -n $ns2_name expose deploy/sqlweb --name=sqlweb --port=80 --type=LoadBalancer
 ```
 
+We need to add the public IP to the SQL Server firewall rules:
+
+```shell
+# Add public IP to the Azure Firewall
+aks_sqlapi_ip=$(kubectl -n $ns2_name get svc/sqlapi -o json | jq -rc '.status.loadBalancer.ingress[0].ip' 2>/dev/null)
+aks_sqlapi_source_ip=$(curl -s http://${aks_sqlapi_ip}:8080/ip | jq -r .my_public_ip)
+az sql server firewall-rule create -g $rg -s $sql_server_name -n aks-sqlapi-source --start-ip-address $aks_sqlapi_source_ip --end-ip-address $aks_sqlapi_source_ip
+```
+
 Let's verify that the new app instance is working:
 
 ```shell
@@ -444,11 +455,12 @@ First, we will start by focusing on the API pods. Let's verify that this pod has
 ```shell
 # Verify inbound connectivity
 vm_pip=$(az network public-ip show  -g $rg -n $vm_pip_name --query ipAddress -o tsv)
-pod_ip=$(kubectl get pod -o wide -l run=sqlapi -o json | jq -r '.items[0].status.podIP')
+pod_ip=$(kubectl -n $ns2_name get pod -o wide -l run=sqlapi -o json | jq -r '.items[0].status.podIP')
 ssh $vm_pip "curl -s http://${pod_ip}:8080/healthcheck"
 # Verify outbound connectivity
-pod_id=$(kubectl get pod -l run=sqlapi -o json | jq -r '.items[0].metadata.name')
-kubectl exec -it $pod_id -- curl ifconfig.co
+# pod_id=$(kubectl -n $ns2_name get pod -l run=sqlapi -o json | jq -r '.items[0].metadata.name')
+# kubectl -n $ns2_name exec -it $pod_id -- curl ifconfig.co
+curl -s "http://${aks_sqlapi_ip}:8080/sql"
 ```
 
 Our first action will be denying all network communication, and verifying:
@@ -456,29 +468,25 @@ Our first action will be denying all network communication, and verifying:
 ```shell
 # Deny all traffic to/from API pods
 base_url="https://raw.githubusercontent.com/erjosito/whoami/master/k8s"
-kubectl apply -f "${base_url}/netpol-sqlapi-deny-all.yaml"
+kubectl -n $ns2_name apply -f "${base_url}/netpol-sqlapi-deny-all.yaml"
 # Verify inbound connectivity (it should NOT work and timeout, feel free to Ctrl-C the operation)
 ssh $vm_pip "curl -s http://${pod_ip}:8080/healthcheck"
 # Verify outbound connectivity (it should NOT work and timeout, feel free to Ctrl-C the operation)
-kubectl exec -it $pod_id -- curl ifconfig.co
+# kubectl -n $ns2_name exec -it $pod_id -- curl ifconfig.co
+curl -s "http://${aks_sqlapi_ip}:8080/sql"
 ```
 
-Let's test out of curiosity whether DNS resolution follows a different pattern than standard network communication:
+Now you can add a second policy that will allow egress communication to the SQL Server public IP address, we can verify whether it is working:
 
 ```shell
-# Verify outbound DNS connectivity
-kubectl exec -it $pod_id -- nslookup docs.microsoft.com
-```
-
-Now you can add a second policy that will allow egress communication to a specific website (`ifconfig.co` in this case), we can verify whether it is working:
-
-```shell
-# Deny all traffic to/from API pods
-kubectl apply -f "${base_url}/netpol-sqlapi-allow-egress-ifconfigco.yaml"
+# Allow traffic to the SQL Server public IP address
+sql_server_pip=$(nslookup ${sql_server_fqdn} | awk '/^Address: / { print $2 }')
+curl -s "${base_url}/netpol-sqlapi-allow-egress-oneipvariable.yaml" | awk '{sub(/{{ip_address}}/,"'$sql_server_pip'")}1' | kubectl -n $ns2_name apply -f -
 # Verify inbound connectivity (it should NOT work and timeout, feel free to Ctrl-C the operation)
 ssh $vm_pip "curl -s http://${pod_ip}:8080/healthcheck"
-# Verify outbound connectivity (it should NOT work and timeout, feel free to Ctrl-C the operation)
-kubectl exec -it $pod_id -- curl ifconfig.co
+# Verify outbound connectivity (it should now work)
+# kubectl -n $ns2_name exec -it $pod_id -- curl ifconfig.co
+curl -s "http://${aks_sqlapi_ip}:8080/sql"
 ```
 
 ```shell
@@ -499,7 +507,7 @@ aks_node_ip=$(kubectl get node -o wide -o json | jq -r '.items[0].status.address
 ssh -J $vm_pip $aks_node_ip
 ```
 
-### Lab 5.2: further exercises
+### Lab 4.2: further exercises<a name="lab4.2"></a>
 
 Kubernetes in general is a functionality-technology. You can extend this lab by incorporating multiple concepts, here some examples (the list is not exhaustive by far):
 
@@ -509,7 +517,7 @@ Kubernetes in general is a functionality-technology. You can extend this lab by 
 * Install Prometheus to measure metrics such as Requests per Second and configure alerts
 * Configure an Horizontal Pod Autoscaler to auto-scale the API as more requests are sent
 
-## Lab 5: Azure App Services for Linux
+## Lab 5: Azure App Services for Linux<a name="lab5"></a>
 
 For this lab we will use Azure Application Services for Linux. Let us create a resource group and a SQL Server:
 
@@ -563,7 +571,7 @@ app_url_web=$(az webapp show -n $app_name_web -g $rg --query defaultHostName -o 
 echo "You can point your browser to http://${app_url_web} to verify the front end"
 ```
 
-### Lab 5.1. Azure App Services with Vnet integration and private link: backend - NOT AVAILABLE YET
+### Lab 5.1. Azure App Services with Vnet integration and private link: backend - NOT AVAILABLE YET<a name="lab5.1"></a>
 
 This lab is built on top of the previous one, you will need to have deployed the Web App and the SQL server before proceeding here (see the instructions in the previous section). Once you do that, we can integrate the Web App and the SQL Server in the Vnet. Let's start by creating the vnet with two subnets:
 
@@ -622,7 +630,7 @@ curl "http://${app_url_api}:8080/ip"
 curl "http://${app_url_api}:8080/sql"
 ```
 
-### Lab 5.2. Azure App Services with Vnet integration and private link: frontend - NOT AVAILABLE YET
+### Lab 5.2. Azure App Services with Vnet integration and private link: frontend - NOT AVAILABLE YET<a name="lab5.2"></a>
 
 We can integrate the frontend of the webapp in our vnet as well, so that it is accessible only from within the vnet or from on-premises. In order to test this, we will need a VM inside the virtual network:
 
