@@ -22,12 +22,15 @@ The labs described below include how to deploy these containers in different for
 sql-api (available in docker hub in [here](https://hub.docker.com/repository/docker/erjosito/sqlapi)), it offers the following endpoints:
 
 * `/healthcheck`: returns a basic JSON code
-* `/sql`: returns the results of a SQL query (`SELECT @@VERSION`) against a SQL database
+* `/sql`: returns the results of a SQL query (`SELECT CONNECTIONPROPERTY("client_net_address")`) against a SQL database. You can override the value of the `SQL_SERVER_FQDN` via a query parameter
 * `/ip`: returns IP information
+* `/dns`: returns the IP address resolved from the FQDN supplied in the parameter `fqdn`
+* `/printenv`: returns the environment variables for the container
 
 Environment variables can be also injected via files in the `/secrets` directory:
 
 * `SQL_SERVER_FQDN`: FQDN of the SQL server
+* `SQL_SERVER_DB` (optional): FQDN of the SQL server
 * `SQL_SERVER_USERNAME`: username for the SQL server
 * `SQL_SERVER_PASSWORD`: password for the SQL server
 
@@ -44,16 +47,30 @@ Environment variables:
 Start locally a SQL Server container:
 
 ```shell
-password="yoursupersecretpassword"
-docker run -e "ACCEPT_EULA=Y" -e "SA_PASSWORD=$password" -p 1433:1433 --name sql1 -d mcr.microsoft.com/mssql/server:2019-GA-ubuntu-16.04
+# Run database
+sql_password="yoursupersecretpassword"
+docker run -e "ACCEPT_EULA=Y" -e "SA_PASSWORD=$sql_password" -p 1433:1433 --name sql -d mcr.microsoft.com/mssql/server:2019-GA-ubuntu-16.04
 ```
 
 Now you can start the SQL API container and refer it to the SQL server (assuming here that the SQL server container got the 172.17.0.2 IP address), and start the Web container and refer it to the SQL API (assuming here the SQL container got the 172.17.0.3 IP address). If you dont know which IP address the container got, you can find it out with `docker inspect sql1`:
 
 ```shell
-docker run -d -p 8080:8080 -e SQL_SERVER_FQDN=172.17.0.2 -e SQL_SERVER_USERNAME=sa -e SQL_SERVER_PASSWORD=$password --name sqlapi sqlapi:0.1
-docker run -d -p 8081:80 -e API_URL=http://172.17.0.3:8080 --name web erjosito/whoami:0.1
+# Run API container
+sql_ip=$(docker inspect sql | jq -r '.[0].NetworkSettings.Networks.bridge.IPAddress')
+docker run -d -p 8080:8080 -e "SQL_SERVER_FQDN=$sql_ip" -e "SQL_USERNAME=sa" -e "SQL_PASSWORD=$sql_password" --name api erjosito/whoami:0.1
 ```
+
+Now you can start the web interface, and refer to the IP address of the API (which you can find out from the `docker inspect` command)
+
+```shell
+# Run Web frontend
+api_ip=$(docker inspect api | jq -r '.[0].NetworkSettings.Networks.bridge.IPAddress')
+docker run -d -p 8081:80 -e "API_URL=http://${api_api}:8080" --name web erjosito/whoami:0.1
+# web_ip=$(docker inspect web | jq -r '.[0].NetworkSettings.Networks.bridge.IPAddress')
+echo "You can point your browser to http://127.0.0.1:8081 to very the app"
+
+```
+
 
 ## Lab 2: Azure Container Instances (public IP addresses)<a name="lab2"></a>
 
