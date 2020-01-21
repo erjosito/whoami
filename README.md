@@ -24,8 +24,9 @@ The labs described below include how to deploy these containers in different for
 sql-api (available in docker hub in [here](https://hub.docker.com/repository/docker/erjosito/sqlapi)), it offers the following endpoints:
 
 * `/healthcheck`: returns a basic JSON code
-* `/sql`: returns the results of a SQL query (`SELECT CONNECTIONPROPERTY("client_net_address")`) against a SQL database. You can override the value of the `SQL_SERVER_FQDN` via a query parameter
-* `/ip`: returns IP information
+* `/sqlversion`: returns the results of a SQL query (`SELECT @@VERSION`) against a SQL database. You can override the value of the `SQL_SERVER_FQDN` via a query parameter 
+* `/sqlsrcip`: returns the results of a SQL query (`SELECT CONNECTIONPROPERTY("client_net_address")`) against a SQL database. You can override the value of the `SQL_SERVER_FQDN` via a query parameter
+* `/ip`: returns information about the IP configuration of the container, such as private IP address, egress public IP address, default gateway, DNS servers, etc
 * `/dns`: returns the IP address resolved from the FQDN supplied in the parameter `fqdn`
 * `/printenv`: returns the environment variables for the container
 
@@ -42,7 +43,7 @@ Simple PHP web page that can access the previous API.
 
 Environment variables:
 
-* `API_URL`: URL where the SQL API can be found
+* `API_URL`: URL where the SQL API can be found, for example `http://1.2.3.4:8080`
 
 ## Lab 1: Docker running locally<a name="lab1"></a>
 
@@ -54,7 +55,7 @@ sql_password="yoursupersecretpassword"
 docker run -e "ACCEPT_EULA=Y" -e "SA_PASSWORD=$sql_password" -p 1433:1433 --name sql -d mcr.microsoft.com/mssql/server:2019-GA-ubuntu-16.04
 ```
 
-Now you can start the SQL API container and refer it to the SQL server (assuming here that the SQL server container got the 172.17.0.2 IP address), and start the Web container and refer it to the SQL API (assuming here the SQL container got the 172.17.0.3 IP address). If you dont know which IP address the container got, you can find it out with `docker inspect sql1`:
+Now you can start the SQL API container and refer it to the SQL server (assuming here that the SQL server container got the 172.17.0.2 IP address), and start the Web container and refer it to the SQL API (assuming here the SQL container got the 172.17.0.3 IP address). If you dont know which IP address the container got, you can find it out with `docker inspect sql1` (and yes, you can install `jq` on Windows with [chocolatey](https://chocolatey.org/)):
 
 ```shell
 # Run API container
@@ -69,10 +70,8 @@ Now you can start the web interface, and refer to the IP address of the API (whi
 api_ip=$(docker inspect api | jq -r '.[0].NetworkSettings.Networks.bridge.IPAddress')
 docker run -d -p 8081:80 -e "API_URL=http://${api_api}:8080" --name web erjosito/whoami:0.1
 # web_ip=$(docker inspect web | jq -r '.[0].NetworkSettings.Networks.bridge.IPAddress')
-echo "You can point your browser to http://127.0.0.1:8081 to very the app"
-
+echo "You can point your browser to http://127.0.0.1:8081 to verify the app"
 ```
-
 
 ## Lab 2: Azure Container Instances (public IP addresses)<a name="lab2"></a>
 
@@ -97,18 +96,20 @@ Create an Azure Container Instance with the API:
 
 ```shell
 # Create ACI for API
-az container create -n api -g $rg -e "SQL_SERVER_USERNAME=$sql_username" "SQL_SERVER_PASSWORD=$sql_password" "SQL_SERVER_FQDN=$sql_server_fqdn" --image erjosito/sqlapi:0.1 --ip-address public --ports 8080
+public_aci_name=publicapi
+az container create -n $public_aci_name -g $rg -e "SQL_SERVER_USERNAME=$sql_username" "SQL_SERVER_PASSWORD=$sql_password" "SQL_SERVER_FQDN=$sql_server_fqdn" --image erjosito/sqlapi:0.1 --ip-address public --ports 8080
 ```
 
 You can verify that the api has access to the SQL server. Before, we need to add the egress IP for the API container to the firewall rules in the SQL Server. We will use the `ip` endpoint of the API container, that gives us its egress public IP address (besides other details):
 
 ```shell
 # SQL Server firewall rules
-sqlapi_ip=$(az container show -n api -g $rg --query ipAddress.ip -o tsv)
+sqlapi_ip=$(az container show -n $public_aci_name -g $rg --query ipAddress.ip -o tsv)
 sqlapi_source_ip=$(curl -s http://${sqlapi_ip}:8080/ip | jq -r .my_public_ip)
-az sql server firewall-rule create -g $rg -s $sql_server_name -n sqlapi-source --start-ip-address $sqlapi_source_ip --end-ip-address $sqlapi_source_ip
-curl http://${sqlapi_ip}:8080/healthcheck
-curl http://${sqlapi_ip}:8080/sql
+az sql server firewall-rule create -g $rg -s $sql_server_name -n public_sqlapi_aci-source --start-ip-address $sqlapi_source_ip --end-ip-address $sqlapi_source_ip
+curl "http://${sqlapi_ip}:8080/healthcheck"
+curl "http://${sqlapi_ip}:8080/sqlsrcip"
+echo "The output of the previous command should have been $sqlapi_source_ip"
 ```
 
 Finally, you can deploy the web frontend to a new ACI:
@@ -122,7 +123,7 @@ echo "Please connect your browser to http://${web_ip} to test the correct deploy
 
 Notice how the Web frontend is able to reach the SQL database through the API.
 
-## Lab 3: Azure Container Instances (in a Virtual Network)<a name="lab3"></a>
+## Lab 3: Azure Container Instances in a Virtual Network (NOT WORKING YET))<a name="lab3"></a>
 
 Create an Azure SQL database:
 
@@ -184,7 +185,7 @@ Now we can create the Azure Container Instances in the vnet subnet, pointing to 
 # Create ACI for API
 vnet_id=$(az network vnet show -n $vnet_name -g $rg --query id -o tsv)
 subnet_aci_id=$(az network vnet subnet show -n $subnet_aci_name --vnet-name $vnet_name -g $rg --query id -o tsv)
-az container create -n api -g $rg -e "SQL_SERVER_USERNAME=$sql_username" "SQL_SERVER_PASSWORD=$sql_password" "SQL_SERVER_FQDN=${sql_endpoint_ip}" --image erjosito/sqlapi:0.1 --ip-address private --ports 8080 --vnet $vnet_id --subnet $subnet_aci_id
+az container create -n api -g $rg -e "SQL_SERVER_USERNAME=$sql_username" "SQL_SERVER_PASSWORD=$sql_password" "SQL_SERVER_FQDN=${sql_endpoint_fqdn}" --image erjosito/sqlapi:0.1 --ip-address private --ports 8080 --vnet $vnet_id --subnet $subnet_aci_id --no-wait
 ```
 
 In order to test the setup, we will need a virtual machine in the same vnet:
@@ -201,7 +202,16 @@ az vm create -n $vm_name -g $rg --vnet-name $vnet_name --subnet $subnet_vm_name 
 vm_pip=$(az network public-ip show  -g $rg -n $vm_pip_name --query ipAddress -o tsv)
 ```
 
-Now we can run commands over the test VM to verify the container is working:
+Verify that the VM and the container are successfully created:
+
+```shell
+# Verify VM status
+az vm list -g $rg -o table
+# Verify ACI status
+az container list -g $rg -o table
+```
+
+Now we can run commands over the test VM to verify the container is working (you will have to accept the prompt to validate the authencity of the VM host over SSH):
 
 ```shell
 # Verify connectivity from the VM to the container
@@ -210,40 +220,26 @@ echo "Azure Container instance assigned IP address ${aci_sqlapi_ip}. If this is 
 ssh $vm_pip "curl -s http://${aci_sqlapi_ip}:8080/healthcheck"
 ```
 
-If the container was not created with the proper IP, you can just recreate it:
+In the case the container was not created with the proper IP in the correct range (`192.168.1.0/24` in this lab), you can just recreate it:
 
 ```shell
-# Redeploy ACI
+# Redeploy ACI if (ONLY if needed)
 az container delete -n api -g $rg -y
-az container create -n api -g $rg -e "SQL_SERVER_USERNAME=$sql_username" "SQL_SERVER_PASSWORD=$sql_password" "SQL_SERVER_FQDN=${sql_endpoint_ip}" --image erjosito/sqlapi:0.1 --ip-address private --ports 8080 --vnet $vnet_id --subnet $subnet_aci_id
+az container create -n api -g $rg -e "SQL_SERVER_USERNAME=$sql_username" "SQL_SERVER_PASSWORD=$sql_password" "SQL_SERVER_FQDN=${sql_server_fqdn}" --image erjosito/sqlapi:0.1 --ip-address private --ports 8080 --vnet $vnet_id --subnet $subnet_aci_id
+aci_sqlapi_ip=$(az container show -n api -g $rg --query 'ipAddress.ip' -o tsv)
+echo "Azure Container instance assigned IP address ${aci_sqlapi_ip}. If this is not contained in the subnet ${subnet_aci_prefix} you might want to recreate the container"
 ```
 
-We need to include the private iP address of the container in the SQL Server firewall rules:
+We can verify the IP settings of the container, and the resolution of the SQL Server FQDN:
 
 ```shell
-# Add Firewall rule (is this required????)
-az sql server firewall-rule create -g $rg -s $sql_server_name -n aci-sqlapi-source --start-ip-address $aci_sqlapi_ip --end-ip-address $aci_sqlapi_ip
+# Verify ACI's environment variables IP configuration and DNS resolution
+ssh $vm_pip "curl -s http://${aci_sqlapi_ip}:8080/printenv"
+ssh $vm_pip "curl -s http://${aci_sqlapi_ip}:8080/ip"
+ssh $vm_pip "curl -s http://${aci_sqlapi_ip}:8080/dns?fqdn=${sql_server_fqdn}"
 ```
 
-And we can verify connectivity to the SQL database:
-
-```shell
-ssh $vm_pip "curl -s http://${aci_sqlapi_ip}:8080/sql"
-```
-
-Now we can create a web frontend that connects to the API container. We will give it a private IP address too, otherwise it would not be able to connect to the API. In order to test the correct deployment, you could use the VM as jump host:
-
-```shell
-# Create ACI for Web frontend
-az container create -n web -g $rg -e "API_URL=http://${aci_sqlapi_ip}" --image erjosito/whoami:0.1 --ip-address public --ports 80  --vnet $vnet_id --subnet $subnet_aci_id
-aci_web_ip=$(az container show -n web -g $rg --query 'ipAddress.ip' -o tsv)
-ssh $vm_pip "curl -s http://${aci_web_ip}/healthcheck"
-ssh $vm_pip "curl -s http://${aci_web_ip}"
-```
-
-### Lab 3.1 - Azure DNS and ACI not working together yet<a name="lab3.1"></a>
-
-At this point in time, name resolution using Azure DNS private zones does not work. We can optionally use a private DNS zone for name resolution, and create a recordset in out private zone:
+As you can see, the container's DNS server is the Vnet's DNS server, however DNS resolution is not working correctly and it is mapping the SQL Server FQDN to its public IP address, and not to the private one. Let's deploy an Azure DNS private zone:
 
 ```shell
 # Create Azure DNS private zone and records
@@ -254,68 +250,42 @@ az network private-dns record-set a create -n $sql_server_name -z $dns_zone_name
 az network private-dns record-set a add-record --record-set-name $sql_server_name -z $dns_zone_name -g $rg -a $sql_endpoint_ip
 ```
 
-Note that the DNS private zone is linked with auto-registration enabled. We will try two things: first, we will verify whether the SQL container can resolve a the A record we have just created. We will create the ACI with SQL_SERVER_FQDN pointing to that record:
+We can verify that the private DNS zone is working using our test VM:
 
 ```shell
-# Recreate ACI with new settings
-az container delete -n api -g $rg -y
-az container create -n api -g $rg -e "SQL_SERVER_USERNAME=$sql_username" "SQL_SERVER_PASSWORD=$sql_password" "SQL_SERVER_FQDN=${sql_server_name}.privatelink.database.windows.net" --image erjosito/sqlapi:0.1 --ip-address private --ports 8080 --vnet $vnet_name --subnet $subnet_aci_name
+# Verify DNS private zones working correctly
+ssh $vm_pip "nslookup ${sql_server_fqdn}"
 ```
 
-Now you can verify with the `ip` endpoint of the API whether the container is resolving the SQL server's FQDN to the public or the private IP address:
+As you can see, DNS private zones seem to be broken, but we can hack our way in using the `/etc/hosts` file (probably not a good idea if you are thinking about putting this in production):
 
 ```shell
-sqlapi_ip=$(az container show -n api -g $rg --query 'ipAddress.ip' -o tsv)
-ssh $pip "curl -s http://${sqlapi_ip}:8080/ip"
+# Hacking the SQL Server FQDN in the hosts file, since private zones do not seem to work with ACI containers
+cmd="echo \"${sql_endpoint_ip} ${sql_server_fqdn}\" >>/etc/hosts"
+echo "Please run this command in the container console:"
+echo $cmd
+az container exec -n api -g $rg --exec-command /bin/bash
+# az container exec -n api -g $rg --exec-command $cmd # Does not work for some reason
 ```
 
-Here you can see a sample output showing the resolution to the public IP (`40.68.37.158` in the sample output below). In other words, ACI are not leveraging Azure DNS private zones:
-
-```console
-$ ssh $pip "curl -s http://${sqlapi_ip}:8080/ip"
-{
-  "my_private_ip": "192.168.1.5",
-  "my_public_ip": "23.97.230.229",
-  "path_accessed": "192.168.1.5:8080/ip",
-  "sql_server_fqdn": "myserver14591.privatelink.database.windows.net",
-  "sql_server_ip": "40.68.37.158",
-  "x-forwarded-for": null,
-  "your_address": "192.168.10.4",
-  "your_browser": "None",
-  "your_platform": "None"
-}
-```
-
-We could further investigate in the container how naming resolution is configured:
+And we can verify connectivity to the SQL database:
 
 ```shell
-# Verify DNS resolution
-az container exec -n api -g $rg "nslookup ${sql_server_name}.privatelink.database.windows.net"
+# Verify DNS resolution and SQL Server connectivity
+ssh $vm_pip "curl -s http://${aci_sqlapi_ip}:8080/dns?fqdn=${sql_server_fqdn}"
+ssh $vm_pip "curl -s http://${aci_sqlapi_ip}:8080/sqlsrcip"
 ```
 
-Secondly, we will check whether whether auto-registration works as well for Azure Container Instances. If it worked, you should see a new record-set for the container. Otherwise, you will only see the A record we created manually for the SQL server, the record created automatically for the test VM (which verifies that auto-registration is working) plus the default `@` SOA record:
+**Still not working!**
+
+Now we can create a web frontend that connects to the API container. We will give it a private IP address too, otherwise it would not be able to connect to the API. In order to test the correct deployment, you could use the VM as jump host:
 
 ```shell
-az network private-dns record-set list -z $dns_zone_name -g $rg -o table
-```
-
-Here you can see a sample output showing that auto-registration for ACI is not working:
-
-```console
-# Verify records created in the private zone
-$ az network private-dns record-set list -z $dns_zone_name -g $rg -o table
-Name           ResourceGroup    Ttl    Type    AutoRegistered    Metadata
--------------  ---------------  -----  ------  ----------------  ----------
-@              containerlab     3600   SOA     False
-myserver14591  containerlab     3600   A       False
-testvm         containerlab     10     A       True
-```
-
-If you want to remove the DNS link from the vnet for troubleshooting purposes, you can use this command:
-
-```shell
-# Remove private link
-az network private-dns link vnet delete -g $rg -z $dns_zone_name -n myDnsLink -y
+# Create ACI for Web frontend
+az container create -n web -g $rg -e "API_URL=http://${aci_sqlapi_ip}" --image erjosito/whoami:0.1 --ip-address public --ports 80  --vnet $vnet_id --subnet $subnet_aci_id
+aci_web_ip=$(az container show -n web -g $rg --query 'ipAddress.ip' -o tsv)
+ssh $vm_pip "curl -s http://${aci_web_ip}/healthcheck"
+ssh $vm_pip "curl -s http://${aci_web_ip}"
 ```
 
 ## Lab 4. AKS cluster in a Virtual Network<a name="lab4"></a>
@@ -364,6 +334,8 @@ az network private-dns zone create -n $dns_zone_name -g $rg
 az network private-dns link vnet create -g $rg -z $dns_zone_name -n myDnsLink --virtual-network $vnet_name --registration-enabled false
 az network private-dns record-set a create -n $sql_server_name -z $dns_zone_name -g $rg
 az network private-dns record-set a add-record --record-set-name $sql_server_name -z $dns_zone_name -g $rg -a $sql_endpoint_ip
+# Verify
+az network private-dns link vnet list -g $rg -z $dns_zone_name -o table
 ```
 
 Note that we deployed our AKS cluster with the `--no-wait` flag, verify that the deployment status is `Succeeded`:
@@ -383,8 +355,8 @@ kubectl create namespace $ns1_name
 kubectl -n $ns1_name run sqlapi --image=erjosito/sqlapi:0.1 --replicas=2 --env="SQL_SERVER_USERNAME=$sql_username" --env="SQL_SERVER_PASSWORD=$sql_password" --env="SQL_SERVER_FQDN=${sql_server_fqdn}" --port=8080
 kubectl -n $ns1_name expose deploy/sqlapi --name=sqlapi --port=8080 --type=LoadBalancer
 ```
- 
-Now we can verify whether the API is working (note that AKS will need 30-60 seconds to provision a public IP for the Kubernetes service, so the following commands might not work at the first attempt):
+
+Now we can verify whether the API is working (note that AKS will need 30-60 seconds to provision a public IP for the Kubernetes service, so the following commands might not work at the first attempt. You can check the state of the service with `kubectl -n $ns1_name get svc`):
 
 ```shell
 # Get API service public IP
@@ -398,24 +370,19 @@ And you can find out some details about how networking is configured inside of t
 curl "http://${aks_sqlapi_ip}:8080/ip"
 ```
 
-We can try to resolve the public DNS name of the SQL server:
+We can try to resolve the public DNS name of the SQL server, it should be resolved to the internal IP address. The reason is that coredns will forward per default to the DNS servers configured in the node (see [this article](https://kubernetes.io/docs/tasks/administer-cluster/dns-custom-nameservers/) for more details):
 
 ```shell
 curl "http://${aks_sqlapi_ip}:8080/dns?fqdn=${sql_server_fqdn}"
 ```
 
-We do not need to update the firewall rules in the firewall to accept connections from the SQL API, since we are using the private IP endpoint to access it. Still, commands provided as a reference, if you decided to use the public endpoint for the SQL server:
+We do not need to update the firewall rules in the firewall to accept connections from the SQL API, since we are using the private IP endpoint to access it. We can now verify whether connectivity to the SQL server is working:
 
 ```shell
-# SQL Server Firewall rules
-# aks_sqlapi_source_ip=$(curl -s "http://${aks_sqlapi_ip}:8080/ip" | jq -r '.my_public_ip')
-# az sql server firewall-rule create -g $rg -s $sql_server_name -n sqlapi-source --start-ip-address $aks_sqlapi_source_ip --end-ip-address $aks_sqlapi_source_ip
-```
-
-And verify whether connectivity to the SQL server is working:
-
-```shell
-curl "http://${aks_sqlapi_ip}:8080/sql"
+# Verify 
+curl "http://${aks_sqlapi_ip}:8080/sqlsrcip"
+echo "The previous command should have given as source IP address one of the pods' IP addresses:"
+kubectl -n $ns1_name get pod -o wide
 ```
 
 Now we can deploy the web frontend pod. Note that as FQDN for the API pod we are using the name for the service:
