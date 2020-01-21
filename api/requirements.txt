@@ -1,3 +1,4 @@
 pyodbc
 flask
 requests
+pymysql

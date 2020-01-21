@@ -11,6 +11,7 @@ The labs described below include how to deploy these containers in different for
 
 * [Lab 1: Docker running locally](#lab1)
 * [Lab 2: Azure Container Instances with public IP addresses](#lab2)
+  * [Lab 2.2: Azure Container Instances with public IP addresses and MySQL](#lab2.2)
 * [Lab 3: Azure Container Instances with private IP addresses](#lab3)
 * [Lab 4: Pods in an Azure Kubernetes Services cluster](#lab4)
 * [Lab 5: Azure Linux Web App with public IP addresses](#lab5)
@@ -29,6 +30,8 @@ sql-api (available in docker hub in [here](https://hub.docker.com/repository/doc
 * `/ip`: returns information about the IP configuration of the container, such as private IP address, egress public IP address, default gateway, DNS servers, etc
 * `/dns`: returns the IP address resolved from the FQDN supplied in the parameter `fqdn`
 * `/printenv`: returns the environment variables for the container
+* `/curl`: returns the output of a curl request, you can specify the argument with the parameter `url`
+* `/mysql`: queries a MySQL database. It uses the same environment variables as the SQL Server endpoints, and you can override them with query parameters
 
 Environment variables can be also injected via files in the `/secrets` directory:
 
@@ -36,6 +39,7 @@ Environment variables can be also injected via files in the `/secrets` directory
 * `SQL_SERVER_DB` (optional): FQDN of the SQL server
 * `SQL_SERVER_USERNAME`: username for the SQL server
 * `SQL_SERVER_PASSWORD`: password for the SQL server
+* `PORT` (optional): TCP port where the web server will be listening (8080 per default)
 
 ## Web
 
@@ -60,7 +64,7 @@ Now you can start the SQL API container and refer it to the SQL server (assuming
 ```shell
 # Run API container
 sql_ip=$(docker inspect sql | jq -r '.[0].NetworkSettings.Networks.bridge.IPAddress')
-docker run -d -p 8080:8080 -e "SQL_SERVER_FQDN=$sql_ip" -e "SQL_USERNAME=sa" -e "SQL_PASSWORD=$sql_password" --name api erjosito/whoami:0.1
+docker run -d -p 8080:8080 -e "SQL_SERVER_FQDN=$sql_ip" -e "SQL_USERNAME=sa" -e "SQL_PASSWORD=$sql_password" --name api erjosito/sqlapi:0.1
 ```
 
 Now you can start the web interface, and refer to the IP address of the API (which you can find out from the `docker inspect` command)
@@ -122,6 +126,36 @@ echo "Please connect your browser to http://${web_ip} to test the correct deploy
 ```
 
 Notice how the Web frontend is able to reach the SQL database through the API.
+
+### Lab 2.2: Azure Container Instances with Azure MySQL<a name="lab2.2"></a>
+
+Let's start with creating a MySQL server and a database:
+
+```shell
+# Create mysql server
+mysql_name=mysql$RANDOM
+mysql_db_name=mydb
+mysql_sku=B_Gen5_1
+az mysql server create -g $rg -n $mysql_name -u $sql_username -p $sql_password --sku-name $mysql_sku --ssl-enforcement Disabled
+az mysql db create -g $rg -s $mysql_name -n $mysql_db_name
+mysql_fqdn=$(az mysql server show -n $mysql_name -g $rg -o tsv --query fullyQualifiedDomainName)
+```
+
+We can open the firewall rules for our previously deployed Azure Container Instance:
+
+```shell
+# Open firewall rules
+sqlapi_ip=$(az container show -n $public_aci_name -g $rg --query ipAddress.ip -o tsv)
+sqlapi_source_ip=$(curl -s http://${sqlapi_ip}:8080/ip | jq -r .my_public_ip)
+az mysql server firewall-rule create -g $rg -s $mysql_name -n public_sqlapi_aci-source --start-ip-address $sqlapi_source_ip --end-ip-address $sqlapi_source_ip
+```
+
+Now we can try to access from our previous Azure Container Instance. We will override the environment variable using the query parameters, since it was configured to point to the Azure SQL Database (and not to our Azure Database for MySQL):
+
+```shell
+# Test access to the mysql server
+curl "http://${sqlapi_ip}:8080/mysql?SQL_SERVER_FQDN=${mysql_fqdn}"   # Not WORKING YET!!!
+```
 
 ## Lab 3: Azure Container Instances in a Virtual Network (NOT WORKING YET))<a name="lab3"></a>
 

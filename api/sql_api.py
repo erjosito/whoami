@@ -5,6 +5,8 @@ import sys
 import time
 import warnings
 import requests
+import pymysql
+
 from flask import Flask
 from flask import request
 from flask import jsonify
@@ -259,12 +261,60 @@ def ip():
         except Exception as e:
             return jsonify(str(e))
 
-# Flask route to provide the container's IP address
+# Flask route to provide the container's environment variables
 @app.route("/printenv", methods=['GET'])
 def printenv():
     if request.method == 'GET':
         try:
             return jsonify(dict(os.environ))
+        except Exception as e:
+            return jsonify(str(e))
+
+# Flask route to run a HTTP GET to a target URL and return the answer
+@app.route("/curl", methods=['GET'])
+def curl():
+    if request.method == 'GET':
+        try:
+            url = request.args.get('url')
+            if url == None:
+                url='http://jsonip.com'
+            http_answer = requests.get(url).text
+            msg = {
+                'url': url,
+                'method': 'GET',
+                'answer': http_answer
+            }          
+            return jsonify(msg)
+        except Exception as e:
+            return jsonify(str(e))
+
+# Flask route to connect to MySQL
+@app.route("/mysql", methods=['GET'])
+def mysql():
+    if request.method == 'GET':
+        sql_query = 'SELECT @@VERSION'
+        try:
+            # Get variables
+            mysql_fqdn = request.args.get('SQL_SERVER_FQDN') or get_variable_value('SQL_SERVER_FQDN')
+            mysql_user = request.args.get('SQL_USERNAME') or get_variable_value('SQL_USERNAME')
+            mysql_pswd = request.args.get('SQL_PASSWORD') or get_variable_value('SQL_PASSWORD')
+            mysql_db = request.args.get('SQL_SERVER_DB') or get_variable_value('SQL_SERVER_DB')
+            # The user must be in the format user@server
+            mysql_name = mysql_fqdn.split('.')[0]
+            mysql_user = mysql_user + '@' + mysql_name
+            # Different connection strings if using a database or not
+            if mysql_db == None:
+                app.logger.info('Connecting to mysql server ' + str(mysql_fqdn) + ', username ' + str(mysql_user) + ', password ' + str(mysql_pswd))
+                db = pymysql.connect(mysql_fqdn, mysql_user, mysql_pswd)
+            else:
+                app.logger.info('Connecting to mysql server ' + str(mysql_fqdn) + ', database ' + str(mysql_db) + ', username ' + str(mysql_user) + ', password ' + str(mysql_pswd))
+                db = pymysql.connect(mysql_fqdn, mysql_user, mysql_pswd, mysql_db)
+            # Send query and extract data
+            cursor = db.cursor()
+            cursor.execute("SELECT VERSION()")
+            data = cursor.fetchone()
+            db.close()
+            return jsonify(str(output))
         except Exception as e:
             return jsonify(str(e))
 
