@@ -11,7 +11,7 @@ The labs described below include how to deploy these containers in different for
 
 * [Lab 1: Docker running locally](#lab1)
 * [Lab 2: Azure Container Instances with public IP addresses](#lab2)
-  * [Lab 2.2: Azure Container Instances with public IP addresses and MySQL](#lab2.2)
+  * [Lab 2.1: Azure Container Instances with public IP addresses and MySQL](#lab2.1)
 * [Lab 3: Azure Container Instances with private IP addresses](#lab3)
 * [Lab 4: Pods in an Azure Kubernetes Services cluster](#lab4)
 * [Lab 5: Azure Linux Web App with public IP addresses](#lab5)
@@ -49,22 +49,32 @@ Environment variables:
 
 * `API_URL`: URL where the SQL API can be found, for example `http://1.2.3.4:8080`
 
+Following you have a list of labs. The commands are thought to be issued in a **Linux console**, but if you are running on a Powershell console they should work with some minor modifications (like adding a `$` in front of the variable names).
+
 ## Lab 1: Docker running locally<a name="lab1"></a>
 
 Start locally a SQL Server container:
 
 ```shell
 # Run database
-sql_password="yoursupersecretpassword"
+sql_password="yoursupersecretpassword"  # Change this!
 docker run -e "ACCEPT_EULA=Y" -e "SA_PASSWORD=$sql_password" -p 1433:1433 --name sql -d mcr.microsoft.com/mssql/server:2019-GA-ubuntu-16.04
 ```
 
-Now you can start the SQL API container and refer it to the SQL server (assuming here that the SQL server container got the 172.17.0.2 IP address), and start the Web container and refer it to the SQL API (assuming here the SQL container got the 172.17.0.3 IP address). If you dont know which IP address the container got, you can find it out with `docker inspect sql1` (and yes, you can install `jq` on Windows with [chocolatey](https://chocolatey.org/)):
+You can try some other interesting docker commands, like the following:
+
+```shell
+docker ps
+docker stop
+docker system prune
+```
+
+Now you can start the SQL API container and refer it to the SQL server (assuming here that the SQL server container got the 172.17.0.2 IP address), and start the Web container and refer it to the SQL API (assuming here the SQL container got the 172.17.0.3 IP address). If you dont know which IP address the container got, you can find it out with `docker inspect sql` (and yes, you can install `jq` on Windows with [chocolatey](https://chocolatey.org/), in case you are using docker under Windows):
 
 ```shell
 # Run API container
 sql_ip=$(docker inspect sql | jq -r '.[0].NetworkSettings.Networks.bridge.IPAddress')
-docker run -d -p 8080:8080 -e "SQL_SERVER_FQDN=$sql_ip" -e "SQL_USERNAME=sa" -e "SQL_PASSWORD=$sql_password" --name api erjosito/sqlapi:0.1
+docker run -d -p 8080:8080 -e "SQL_SERVER_FQDN=${sql_ip}" -e "SQL_USERNAME=sa" -e "SQL_PASSWORD=${sql_password}" --name api erjosito/sqlapi:0.1
 ```
 
 Now you can start the web interface, and refer to the IP address of the API (which you can find out from the `docker inspect` command)
@@ -76,6 +86,8 @@ docker run -d -p 8081:80 -e "API_URL=http://${api_api}:8080" --name web erjosito
 # web_ip=$(docker inspect web | jq -r '.[0].NetworkSettings.Networks.bridge.IPAddress')
 echo "You can point your browser to http://127.0.0.1:8081 to verify the app"
 ```
+
+Please note that there are two links in the Web frontend that will only work if used with an ingress controller in Kubernetes (see the AKS sections further in this document).
 
 ## Lab 2: Azure Container Instances (public IP addresses)<a name="lab2"></a>
 
@@ -127,7 +139,7 @@ echo "Please connect your browser to http://${web_ip} to test the correct deploy
 
 Notice how the Web frontend is able to reach the SQL database through the API.
 
-### Lab 2.2: Azure Container Instances with Azure MySQL<a name="lab2.2"></a>
+### Lab 2.1: Azure Container Instances with Azure MySQL<a name="lab2.1"></a>
 
 Let's start with creating a MySQL server and a database:
 
@@ -158,8 +170,6 @@ curl "http://${sqlapi_ip}:8080/mysql?SQL_SERVER_FQDN=${mysql_fqdn}"   # Not WORK
 ```
 
 ## Lab 3: Azure Container Instances in a Virtual Network (NOT WORKING YET))<a name="lab3"></a>
-
-Create an Azure SQL database:
 
 We will start creating an Azure database, as in the previous lab:
 
