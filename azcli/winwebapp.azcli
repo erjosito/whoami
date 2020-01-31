@@ -42,7 +42,7 @@ az webapp vnet-integration add -n $app_name_api -g $rg --vnet $vnet_name --subne
 az webapp vnet-integration list -n $app_name_api -g $rg -o table
 
 # load app
-app_file_url=https://raw.githubusercontent.com/jelledruyts/Playground/master/web/default.aspx
+app_file_url=https://raw.githubusercontent.com/jelledruyts/InspectorGadget/master/Page/default.aspx
 app_file_name=default.aspx
 wget $app_file_url -O $app_file_name
 creds=($(az webapp deployment list-publishing-profiles -n $app_name_api -g $rg --query "[?contains(publishMethod, 'FTP')].[publishUrl,userName,userPWD]" --output tsv))
