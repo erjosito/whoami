@@ -156,7 +156,7 @@ def get_default_gateway():
             return socket.inet_ntoa(struct.pack("<L", int(fields[2], 16)))
 
 # Flask route for healthchecks
-@app.route("/healthcheck", methods=['GET'])
+@app.route("/api/healthcheck", methods=['GET'])
 def healthcheck():
     if request.method == 'GET':
         try:
@@ -168,7 +168,7 @@ def healthcheck():
           return jsonify(str(e))
 
 # Flask route to ping the SQL server with a basic SQL query
-@app.route("/sql", methods=['GET'])
+@app.route("/api/sql", methods=['GET'])
 def sql():
     if request.method == 'GET':
         try:
@@ -183,7 +183,7 @@ def sql():
           return jsonify(str(e))
 
 # Flask route to ping the SQL server with a basic SQL query
-@app.route("/sqlversion", methods=['GET'])
+@app.route("/api/sqlversion", methods=['GET'])
 def sqlversion():
     if request.method == 'GET':
         sql_query = 'SELECT @@VERSION'
@@ -198,7 +198,7 @@ def sqlversion():
         except Exception as e:
           return jsonify(str(e))
 
-@app.route("/sqlsrcip", methods=['GET'])
+@app.route("/api/sqlsrcip", methods=['GET'])
 def sqlsrcip():
     if request.method == 'GET':
         sql_query = 'SELECT CONNECTIONPROPERTY(\'client_net_address\')'
@@ -215,7 +215,7 @@ def sqlsrcip():
 
 
 # Flask route to provide the container's IP address
-@app.route("/dns", methods=['GET'])
+@app.route("/api/dns", methods=['GET'])
 def dns():
     try:
         fqdn = request.args.get('fqdn')
@@ -230,7 +230,7 @@ def dns():
         
 
 # Flask route to provide the container's IP address
-@app.route("/ip", methods=['GET'])
+@app.route("/api/ip", methods=['GET'])
 def ip():
     if request.method == 'GET':
         try:
@@ -262,7 +262,7 @@ def ip():
             return jsonify(str(e))
 
 # Flask route to provide the container's environment variables
-@app.route("/printenv", methods=['GET'])
+@app.route("/api/printenv", methods=['GET'])
 def printenv():
     if request.method == 'GET':
         try:
@@ -271,7 +271,7 @@ def printenv():
             return jsonify(str(e))
 
 # Flask route to run a HTTP GET to a target URL and return the answer
-@app.route("/curl", methods=['GET'])
+@app.route("/api/curl", methods=['GET'])
 def curl():
     if request.method == 'GET':
         try:
@@ -289,19 +289,27 @@ def curl():
             return jsonify(str(e))
 
 # Flask route to connect to MySQL
-@app.route("/mysql", methods=['GET'])
+@app.route("/api/mysql", methods=['GET'])
 def mysql():
     if request.method == 'GET':
         sql_query = 'SELECT @@VERSION'
         try:
             # Get variables
             mysql_fqdn = request.args.get('SQL_SERVER_FQDN') or get_variable_value('SQL_SERVER_FQDN')
-            mysql_user = request.args.get('SQL_USERNAME') or get_variable_value('SQL_USERNAME')
-            mysql_pswd = request.args.get('SQL_PASSWORD') or get_variable_value('SQL_PASSWORD')
+            mysql_user = request.args.get('SQL_SERVER_USERNAME') or get_variable_value('SQL_SERVER)USERNAME')
+            mysql_pswd = request.args.get('SQL_SERVER_PASSWORD') or get_variable_value('SQL_SERVER_PASSWORD')
             mysql_db = request.args.get('SQL_SERVER_DB') or get_variable_value('SQL_SERVER_DB')
+            app.logger.info('Values to connect to MySQL:')
+            app.logger.info(mysql_fqdn)
+            app.logger.info(mysql_db)
+            app.logger.info(mysql_user)
+            app.logger.info(mysql_pswd)
             # The user must be in the format user@server
             mysql_name = mysql_fqdn.split('.')[0]
-            mysql_user = mysql_user + '@' + mysql_name
+            if mysql_name:
+                mysql_user = mysql_user + '@' + mysql_name
+            else:
+                return "MySql server name could not be retrieved out of FQDN"
             # Different connection strings if using a database or not
             if mysql_db == None:
                 app.logger.info('Connecting to mysql server ' + str(mysql_fqdn) + ', username ' + str(mysql_user) + ', password ' + str(mysql_pswd))
@@ -314,7 +322,10 @@ def mysql():
             cursor.execute("SELECT VERSION()")
             data = cursor.fetchone()
             db.close()
-            return jsonify(str(output))
+            msg = {
+                'sql_output': str(data)
+            }          
+            return jsonify(msg)
         except Exception as e:
             return jsonify(str(e))
 

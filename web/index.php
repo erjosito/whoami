@@ -41,26 +41,26 @@
                     <p>These links will only work if the environment variable API_URL is set to the correct instance of an instance of the image erjosito/sqlapi:</p>
                     <ul>
                     <?php
-                        $cmd = "curl " . getenv("API_URL") . "/healthcheck";
+                        $cmd = "curl " . getenv("API_URL") . "/api/healthcheck";
                         $result_json = shell_exec($cmd);
                         $result = json_decode($result_json, true);
                         $healthcheck = $result["health"];
                     ?>
                         <li>Healthcheck: <?php print ($healthcheck); ?></li>
                     <?php
-                        $cmd = "curl " . getenv("API_URL") . "/sql";
+                        $cmd = "curl " . getenv("API_URL") . "/api/sqlversion";
                         $result_json = shell_exec($cmd);
                         $result = json_decode($result_json, true);
                         $sql_output = $result["sql_output"];
                     ?>
-                        <li>SQL output: <?php print($sql_output); ?></li>
+                        <li>SQL Server version: <?php print($sql_output); ?></li>
                     </ul>
                     <br>
                     <h3>Direct access to API</h3>
-                    <p>These links will only work if used with an ingress controller</p>
+                    <p>Note that these links will only work if used with a reverse-proxy, such an ingress controller in Kubernetes or an Azure Application Gateway</p>
                     <ul>
                         <li><a href='/api/healthcheck'>API health status</a></li>
-                        <li><a href='/api/sql'>Database version</a></li>
+                        <li><a href='/api/sqlversion'>SQL Server version</a></li>
                     </ul>
                 </div>
             </div>

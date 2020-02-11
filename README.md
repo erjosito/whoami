@@ -24,14 +24,14 @@ The labs described below include how to deploy these containers in different for
 
 sql-api (available in docker hub in [here](https://hub.docker.com/repository/docker/erjosito/sqlapi)), it offers the following endpoints:
 
-* `/healthcheck`: returns a basic JSON code
-* `/sqlversion`: returns the results of a SQL query (`SELECT @@VERSION`) against a SQL database. You can override the value of the `SQL_SERVER_FQDN` via a query parameter 
-* `/sqlsrcip`: returns the results of a SQL query (`SELECT CONNECTIONPROPERTY("client_net_address")`) against a SQL database. You can override the value of the `SQL_SERVER_FQDN` via a query parameter
-* `/ip`: returns information about the IP configuration of the container, such as private IP address, egress public IP address, default gateway, DNS servers, etc
-* `/dns`: returns the IP address resolved from the FQDN supplied in the parameter `fqdn`
-* `/printenv`: returns the environment variables for the container
-* `/curl`: returns the output of a curl request, you can specify the argument with the parameter `url`
-* `/mysql`: queries a MySQL database. It uses the same environment variables as the SQL Server endpoints, and you can override them with query parameters
+* `/api/healthcheck`: returns a basic JSON code
+* `/api/sqlversion`: returns the results of a SQL query (`SELECT @@VERSION`) against a SQL database. You can override the value of the `SQL_SERVER_FQDN` via a query parameter 
+* `/api/sqlsrcip`: returns the results of a SQL query (`SELECT CONNECTIONPROPERTY("client_net_address")`) against a SQL database. You can override the value of the `SQL_SERVER_FQDN` via a query parameter
+* `/api/ip`: returns information about the IP configuration of the container, such as private IP address, egress public IP address, default gateway, DNS servers, etc
+* `/api/dns`: returns the IP address resolved from the FQDN supplied in the parameter `fqdn`
+* `/api/printenv`: returns the environment variables for the container
+* `/api/curl`: returns the output of a curl request, you can specify the argument with the parameter `url`
+* `/api/mysql`: queries a MySQL database. It uses the same environment variables as the SQL Server endpoints, and you can override them with query parameters
 
 Environment variables can be also injected via files in the `/secrets` directory:
 
@@ -121,10 +121,10 @@ You can verify that the api has access to the SQL server. Before, we need to add
 ```shell
 # SQL Server firewall rules
 sqlapi_ip=$(az container show -n $public_aci_name -g $rg --query ipAddress.ip -o tsv)
-sqlapi_source_ip=$(curl -s http://${sqlapi_ip}:8080/ip | jq -r .my_public_ip)
+sqlapi_source_ip=$(curl -s http://${sqlapi_ip}:8080/api/ip | jq -r .my_public_ip)
 az sql server firewall-rule create -g $rg -s $sql_server_name -n public_sqlapi_aci-source --start-ip-address $sqlapi_source_ip --end-ip-address $sqlapi_source_ip
-curl "http://${sqlapi_ip}:8080/healthcheck"
-curl "http://${sqlapi_ip}:8080/sqlsrcip"
+curl "http://${sqlapi_ip}:8080/api/healthcheck"
+curl "http://${sqlapi_ip}:8080/api/sqlsrcip"
 echo "The output of the previous command should have been $sqlapi_source_ip"
 ```
 
@@ -141,7 +141,7 @@ Notice how the Web frontend is able to reach the SQL database through the API.
 
 ### Lab 2.1: Azure Container Instances with Azure MySQL<a name="lab2.1"></a>
 
-Let's start with creating a MySQL server and a database:
+What has been tested so far is valid not only for Azure SQL Database (based on Microsoft SQL Server technology), but to the open source offerings such as Azure SQL Database for MySQL as well. Let's start with creating a MySQL server and a database:
 
 ```shell
 # Create mysql server
@@ -158,7 +158,7 @@ We can open the firewall rules for our previously deployed Azure Container Insta
 ```shell
 # Open firewall rules
 sqlapi_ip=$(az container show -n $public_aci_name -g $rg --query ipAddress.ip -o tsv)
-sqlapi_source_ip=$(curl -s http://${sqlapi_ip}:8080/ip | jq -r .my_public_ip)
+sqlapi_source_ip=$(curl -s http://${sqlapi_ip}:8080/api/ip | jq -r .my_public_ip)
 az mysql server firewall-rule create -g $rg -s $mysql_name -n public_sqlapi_aci-source --start-ip-address $sqlapi_source_ip --end-ip-address $sqlapi_source_ip
 ```
 
@@ -166,12 +166,97 @@ Now we can try to access from our previous Azure Container Instance. We will ove
 
 ```shell
 # Test access to the mysql server
-curl "http://${sqlapi_ip}:8080/mysql?SQL_SERVER_FQDN=${mysql_fqdn}"   # Not WORKING YET!!!
+curl "http://${sqlapi_ip}:8080/api/mysql?SQL_SERVER_FQDN=${mysql_fqdn}"   # Not WORKING YET!!!
 ```
 
-## Lab 3: Azure Container Instances in a Virtual Network (NOT WORKING YET))<a name="lab3"></a>
+### Lab 2.2: Azure Application Gateway in front of ACI<a name="lab2.2"></a>
 
-We will start creating an Azure database, as in the previous lab:
+Could we have a reverse-proxy in front of the ACIs, to offer functionality such as SSL offload? Let's try with the Azure Application Gateway:
+
+```shell
+# variables
+vnet_name=myvnet
+vnet_prefix=192.168.0.0/16
+subnet_appgw_name=ApplicationGateway
+subnet_appgw_prefix=192.168.75.0/24
+appgw_name=myappgw
+appgw_sku=Standard_v2
+appgw_pipname=${appgw_name}-pip
+# Create vnet
+az network vnet create -g $rg -n $vnet_name --address-prefix $vnet_prefix -l $location
+az network vnet subnet create -g $rg --vnet-name $vnet_name -n $subnet_appgw_name --address-prefix $subnet_appgw_prefix
+# Create PIP for AppGw
+az network public-ip create -g $rg -n $appgw_pipname --sku Standard -l $location
+# Create App Gw
+az network application-gateway create -g $rg -n $appgw_name -l $location \
+        --capacity 2 --sku $appgw_sku --frontend-port 80 \
+        --routing-rule-type basic --http-settings-port 80 \
+        --http-settings-protocol Http --public-ip-address $appgw_pipname \
+        --vnet-name $vnet_name --subnet $subnet_appgw_name \
+        --servers ${web_ip} --no-wait
+```
+
+Wait until the previous command to finish, you can see the state of the Application Gateway being provisioned with:
+
+```shell
+echo "Wait until ProvisioningState is Successful"
+az network application-gateway list -g $rg -o table
+```
+
+Optionally you could change the provisioned gateway to use autoscaling, this will reduce your costs changing the billing model to Capacity Units. For more information visit the [Azure Application Gateway pricing page](https://azure.microsoft.com/pricing/details/application-gateway/):
+
+```shell
+az network application-gateway update -n $appgw_name -g $rg \
+    --set autoscaleConfiguration='{"minCapacity": 1, "maxCapacity": 2}' \
+    --set sku='{"name": "Standard_v2","tier": "Standard_v2"}'
+```
+
+Once the application gateway has been deployed, you should be able to access its public IP address, that will be redirected to the frontend ACI. For the sake of simplicity we will use `nip.io` DNS names, that just resolve to the IP address provided in the FQDN:
+
+```shell
+appgw_pip=$(az network public-ip show -n $appgw_pipname -g $rg --query ipAddress -o tsv)
+echo "You can test the application gateway deployment accessing this URL in your browser: http://${appgw_pip}.nip.io"
+```
+
+Now we can add an additional rule to the Application Gateway, to provide access to the API container over the same URL, but on a different path:
+
+```shell
+# Create new listener (so that we can used url path-based routing)
+az network application-gateway http-listener create --gateway-name $appgw_name -g $rg -n containerlab --host-name "${appgw_pip}.nip.io" --frontend-ip appGatewayFrontendIP --frontend-port appGatewayFrontendPort
+# Create backend pool, custom probe and backend http settings
+az network application-gateway address-pool create --gateway-name $appgw_name -g $rg -n api --servers ${sqlapi_ip}
+az network application-gateway probe create --gateway-name $appgw_name -g $rg -n api --path /api/healthcheck --port 8080 --protocol http --host-name-from-http-settings
+az network application-gateway http-settings create --gateway-name $appgw_name -g $rg -n api --protocol http --port 8080 --probe api --host-name-from-backend-pool
+# Create an URL path-based rule
+az network application-gateway url-path-map create --gateway-name $appgw_name -g $rg -n MyUrlPathMap --rule-name api --paths '/api/*' --address-pool api --http-settings api
+# Add new rule linking everything together (the default pool is the web farm)
+az network application-gateway rule create --gateway-name $appgw_name -g $rg -n api --rule-type PathBasedRouting --http-listener containerlab --address-pool appGatewayBackendPool --http-settings appGatewayBackendHttpSettings --url-path-map MyUrlPathMap
+```
+
+Some commands to verify that everything provisioned correctly:
+
+```shell
+# Verification commands
+az network application-gateway frontend-ip list --gateway-name $appgw_name -g $rg -o table
+az network application-gateway frontend-port list --gateway-name $appgw_name -g $rg -o table
+az network application-gateway http-listener list --gateway-name $appgw_name -g $rg -o table
+az network application-gateway probe list --gateway-name $appgw_name -g $rg -o table
+az network application-gateway rule list --gateway-name $appgw_name -g $rg -o table
+az network application-gateway url-path-map list --gateway-name $appgw_name -g $rg
+az network application-gateway address-pool list --gateway-name $appgw_name -g $rg -o table
+az network application-gateway show-backend-health -n $appgw_name -g $rg
+az network application-gateway http-settings list --gateway-name $appgw_name -g $rg -o table
+```
+
+At this point you can visit the web page over the Azure Application Gateway IP address and verify that the links in the `Direct access to API` section work properly.
+
+```shell
+echo "You can verify the links in the 'Direct Access to API' section of http://${appgw_pip}.nip.io"
+```
+
+## Lab 3: Azure Container Instances in a Virtual Network<a name="lab3"></a>
+
+Note that this lab has a strong limitation: Azure Container Instances today do not query the Vnet DNS when deployed into a Vnet. Hence, in order to use private link with a vnet-injected ACI, tampering with the hosts file is going to be our only choice left. We will start creating an Azure database, as in the previous lab (or use the existing one, in which case you may proceed to the next step):
 
 ```shell
 # Resource Group
@@ -207,20 +292,34 @@ We can now create a private endpoint for our SQL Server in the subnet for the da
 
 ```shell
 # SQL Server private endpoint
-endpoint_name=mysqlep
+sql_endpoint_name=sqlep
 sql_server_id=$(az sql server show -n $sql_server_name -g $rg -o tsv --query id)
 az network vnet subnet update -n $subnet_sql_name -g $rg --vnet-name $vnet_name --disable-private-endpoint-network-policies true
-az network private-endpoint create -n $endpoint_name -g $rg --vnet-name $vnet_name --subnet $subnet_sql_name --private-connection-resource-id $sql_server_id --group-ids sqlServer --connection-name sqlConnection
+az network private-endpoint create -n $sql_endpoint_name -g $rg --vnet-name $vnet_name --subnet $subnet_sql_name --private-connection-resource-id $sql_server_id --group-ids sqlServer --connection-name sqlConnection
 ```
 
 We can have a look at the assigned IP address:
 
 ```shell
 # Endpoint's private IP address
-nic_id=$(az network private-endpoint show -n $endpoint_name -g $rg --query 'networkInterfaces[0].id' -o tsv)
+sql_nic_id=$(az network private-endpoint show -n $sql_endpoint_name -g $rg --query 'networkInterfaces[0].id' -o tsv)
 sql_endpoint_ip=$(az network nic show --ids $nic_id --query 'ipConfigurations[0].privateIpAddress' -o tsv)
 echo "Private IP address for SQL server ${sql_server_name}: ${sql_endpoint_ip}"
 nslookup ${sql_server_name}.privatelink.database.windows.net
+```
+
+Optionally, you could do the same with the MySQL database (note that this feature is in preview and not available in all regions):
+
+```shell
+# SQL Server private endpoint
+mysql_endpoint_name=mysql-ep
+mysql_server_id=$(az mysql server show -n $mysql_name -g $rg -o tsv --query id)
+az network private-endpoint create -n $mysql_endpoint_name -g $rg --vnet-name $vnet_name --subnet $subnet_sql_name --private-connection-resource-id $mysql_server_id --group-ids mysqlServer --connection-name mySqlConnection
+# Endpoint's private IP address
+mysql_nic_id=$(az network private-endpoint show -n $endpoint_name -g $rg --query 'networkInterfaces[0].id' -o tsv)
+mysql_endpoint_ip=$(az network nic show --ids $nic_id --query 'ipConfigurations[0].privateIpAddress' -o tsv)
+echo "Private IP address for MySQL server ${mysql_name}: ${mysql_endpoint_ip}"
+nslookup ${mysql_name}.privatelink.database.windows.net
 ```
 
 Now we can create the Azure Container Instances in the vnet subnet, pointing to the private IP address (if you want to know why we are not using the FQDN, check out the next section on private DNS). We will use the vnet and subnet IDs (and not the vnet/subnet names) to avoid ambiguity:
@@ -229,7 +328,7 @@ Now we can create the Azure Container Instances in the vnet subnet, pointing to 
 # Create ACI for API
 vnet_id=$(az network vnet show -n $vnet_name -g $rg --query id -o tsv)
 subnet_aci_id=$(az network vnet subnet show -n $subnet_aci_name --vnet-name $vnet_name -g $rg --query id -o tsv)
-az container create -n api -g $rg -e "SQL_SERVER_USERNAME=$sql_username" "SQL_SERVER_PASSWORD=$sql_password" "SQL_SERVER_FQDN=${sql_endpoint_fqdn}" --image erjosito/sqlapi:0.1 --ip-address private --ports 8080 --vnet $vnet_id --subnet $subnet_aci_id --no-wait
+az container create -n api -g $rg -e "SQL_SERVER_USERNAME=$sql_username" "SQL_SERVER_PASSWORD=$sql_password" "SQL_SERVER_FQDN=${sql_server_fqdn}" --image erjosito/sqlapi:0.1 --ip-address private --ports 8080 --vnet $vnet_id --subnet $subnet_aci_id --no-wait
 ```
 
 In order to test the setup, we will need a virtual machine in the same vnet:
@@ -243,7 +342,6 @@ vm_size=Standard_D2_v3
 vm_pip_name=${vm_name}-pip
 az network vnet subnet create -g $rg --vnet-name $vnet_name -n $subnet_vm_name --address-prefix $subnet_vm_prefix
 az vm create -n $vm_name -g $rg --vnet-name $vnet_name --subnet $subnet_vm_name --public-ip-address $vm_pip_name --generate-ssh-keys --image ubuntuLTS --priority Low --size $vm_size --no-wait
-vm_pip=$(az network public-ip show  -g $rg -n $vm_pip_name --query ipAddress -o tsv)
 ```
 
 Verify that the VM and the container are successfully created:
@@ -259,12 +357,13 @@ Now we can run commands over the test VM to verify the container is working (you
 
 ```shell
 # Verify connectivity from the VM to the container
+vm_pip=$(az network public-ip show  -g $rg -n $vm_pip_name --query ipAddress -o tsv)
 aci_sqlapi_ip=$(az container show -n api -g $rg --query 'ipAddress.ip' -o tsv)
 echo "Azure Container instance assigned IP address ${aci_sqlapi_ip}. If this is not contained in the subnet ${subnet_aci_prefix} you might want to recreate the container"
-ssh $vm_pip "curl -s http://${aci_sqlapi_ip}:8080/healthcheck"
+ssh $vm_pip "curl -s http://${aci_sqlapi_ip}:8080/api/healthcheck"
 ```
 
-In the case the container was not created with the proper IP in the correct range (`192.168.1.0/24` in this lab), you can just recreate it:
+In the case the container was not created with the proper IP in the correct range (`192.168.1.0/24` in this lab), you can just recreate it. If it has a correct IP address, you can skip to the next step.
 
 ```shell
 # Redeploy ACI if (ONLY if needed)
@@ -278,12 +377,12 @@ We can verify the IP settings of the container, and the resolution of the SQL Se
 
 ```shell
 # Verify ACI's environment variables IP configuration and DNS resolution
-ssh $vm_pip "curl -s http://${aci_sqlapi_ip}:8080/printenv"
-ssh $vm_pip "curl -s http://${aci_sqlapi_ip}:8080/ip"
-ssh $vm_pip "curl -s http://${aci_sqlapi_ip}:8080/dns?fqdn=${sql_server_fqdn}"
+ssh $vm_pip "curl -s http://${aci_sqlapi_ip}:8080/api/printenv"
+ssh $vm_pip "curl -s http://${aci_sqlapi_ip}:8080/api/ip"
+ssh $vm_pip "curl -s http://${aci_sqlapi_ip}:8080/api/dns?fqdn=${sql_server_fqdn}"
 ```
 
-As you can see, the container's DNS server is the Vnet's DNS server, however DNS resolution is not working correctly and it is mapping the SQL Server FQDN to its public IP address, and not to the private one. Let's deploy an Azure DNS private zone:
+As you can see, the container's DNS server is the Vnet's DNS server, however DNS resolution is not working correctly and it is mapping the SQL Server FQDN to its public IP address, and not to the private one. Let's try to fix this deploying an Azure DNS private zone:
 
 ```shell
 # Create Azure DNS private zone and records
@@ -297,8 +396,10 @@ az network private-dns record-set a add-record --record-set-name $sql_server_nam
 We can verify that the private DNS zone is working using our test VM:
 
 ```shell
-# Verify DNS private zones working correctly
+# Verify DNS private zones working correctly in the VM
 ssh $vm_pip "nslookup ${sql_server_fqdn}"
+# Verify DNS private zones working correctly in the vnet-injected ACI: this will still resolve to the public IP
+ssh $vm_pip "curl -s http://${aci_sqlapi_ip}:8080/api/dns?fqdn=${sql_server_fqdn}"
 ```
 
 As you can see, DNS private zones seem to be broken, but we can hack our way in using the `/etc/hosts` file (probably not a good idea if you are thinking about putting this in production):
@@ -316,11 +417,10 @@ And we can verify connectivity to the SQL database:
 
 ```shell
 # Verify DNS resolution and SQL Server connectivity
-ssh $vm_pip "curl -s http://${aci_sqlapi_ip}:8080/dns?fqdn=${sql_server_fqdn}"
-ssh $vm_pip "curl -s http://${aci_sqlapi_ip}:8080/sqlsrcip"
+ssh $vm_pip "curl -s http://${aci_sqlapi_ip}:8080/api/dns?fqdn=${sql_server_fqdn}"
+ssh $vm_pip "curl -s http://${aci_sqlapi_ip}:8080/api/sqlversion"
+ssh $vm_pip "curl -s http://${aci_sqlapi_ip}:8080/api/sqlsrcip"
 ```
-
-**Still not working!**
 
 Now we can create a web frontend that connects to the API container. We will give it a private IP address too, otherwise it would not be able to connect to the API. In order to test the correct deployment, you could use the VM as jump host:
 
@@ -334,7 +434,7 @@ ssh $vm_pip "curl -s http://${aci_web_ip}"
 
 ## Lab 4. AKS cluster in a Virtual Network<a name="lab4"></a>
 
-For this lab we will use Azure Kubernetes Service (AKS). The first thing we need is a cluster. We will deploy an AKS cluster in our own vnet, so we will create the vnet first. We will create the SQL private endpoint as in lab 3 as well:
+For this lab we will use Azure Kubernetes Service (AKS). The first thing we need is a cluster. We will deploy an AKS cluster in our own vnet, so we will create the vnet first. We will create the SQL private endpoint as in lab 3 as well. Note that you might have to activate the features required for AKS private clusters (see [this link](https://docs.microsoft.com/azure/aks/private-clusters)):
 
 ```shell
 # Resource group
@@ -352,11 +452,11 @@ subnet_sql_prefix=192.168.2.0/24
 az network vnet create -g $rg -n $vnet_name --address-prefix $vnet_prefix -l $location
 az network vnet subnet create -g $rg --vnet-name $vnet_name -n $subnet_aks_name --address-prefix $subnet_aks_prefix
 az network vnet subnet create -g $rg --vnet-name $vnet_name -n $subnet_sql_name --address-prefix $subnet_sql_prefix
-# AKS (Azure CNI plugin, Azure network policy)
+# AKS (Azure CNI plugin, Azure network policy, private API server)
 aks_name=aks
 aks_node_size=Standard_B2ms
 aks_subnet_id=$(az network vnet subnet show -n $subnet_aks_name --vnet-name $vnet_name -g $rg --query id -o tsv)
-az aks create -n $aks_name -g $rg -c 1 -s $aks_node_size --generate-ssh-keys --network-plugin azure --network-policy azure --vnet-subnet-id $aks_subnet_id --no-wait
+az aks create -n $aks_name -g $rg -c 1 -s $aks_node_size --generate-ssh-keys --network-plugin azure --network-policy azure --vnet-subnet-id $aks_subnet_id --enable-private-cluster --no-wait
 # Azure SQL
 sql_db_name=mydb
 sql_username=azure
@@ -405,26 +505,26 @@ Now we can verify whether the API is working (note that AKS will need 30-60 seco
 ```shell
 # Get API service public IP
 aks_sqlapi_ip=$(kubectl -n $ns1_name get svc/sqlapi -o json | jq -rc '.status.loadBalancer.ingress[0].ip' 2>/dev/null)
-curl "http://${aks_sqlapi_ip}:8080/healthcheck"
+curl "http://${aks_sqlapi_ip}:8080/api/healthcheck"
 ```
 
 And you can find out some details about how networking is configured inside of the pod:
 
 ```shell
-curl "http://${aks_sqlapi_ip}:8080/ip"
+curl "http://${aks_sqlapi_ip}:8080/api/ip"
 ```
 
 We can try to resolve the public DNS name of the SQL server, it should be resolved to the internal IP address. The reason is that coredns will forward per default to the DNS servers configured in the node (see [this article](https://kubernetes.io/docs/tasks/administer-cluster/dns-custom-nameservers/) for more details):
 
 ```shell
-curl "http://${aks_sqlapi_ip}:8080/dns?fqdn=${sql_server_fqdn}"
+curl "http://${aks_sqlapi_ip}:8080/api/dns?fqdn=${sql_server_fqdn}"
 ```
 
 We do not need to update the firewall rules in the firewall to accept connections from the SQL API, since we are using the private IP endpoint to access it. We can now verify whether connectivity to the SQL server is working:
 
 ```shell
 # Verify 
-curl "http://${aks_sqlapi_ip}:8080/sqlsrcip"
+curl "http://${aks_sqlapi_ip}:8080/api/sqlsrcip"
 echo "The previous command should have given as source IP address one of the pods' IP addresses:"
 kubectl -n $ns1_name get pod -o wide
 ```
@@ -480,7 +580,7 @@ We need to add the public IP to the SQL Server firewall rules:
 ```shell
 # Add public IP to the Azure Firewall
 aks_sqlapi_ip=$(kubectl -n $ns2_name get svc/sqlapi -o json | jq -rc '.status.loadBalancer.ingress[0].ip' 2>/dev/null)
-aks_sqlapi_source_ip=$(curl -s http://${aks_sqlapi_ip}:8080/ip | jq -r .my_public_ip)
+aks_sqlapi_source_ip=$(curl -s http://${aks_sqlapi_ip}:8080/api/ip | jq -r .my_public_ip)
 az sql server firewall-rule create -g $rg -s $sql_server_name -n aks-sqlapi-source --start-ip-address $aks_sqlapi_source_ip --end-ip-address $aks_sqlapi_source_ip
 ```
 
@@ -498,11 +598,11 @@ First, we will start by focusing on the API pods. Let's verify that this pod has
 # Verify inbound connectivity
 vm_pip=$(az network public-ip show  -g $rg -n $vm_pip_name --query ipAddress -o tsv)
 pod_ip=$(kubectl -n $ns2_name get pod -o wide -l run=sqlapi -o json | jq -r '.items[0].status.podIP')
-ssh $vm_pip "curl -s http://${pod_ip}:8080/healthcheck"
+ssh $vm_pip "curl -s http://${pod_ip}:8080/api/healthcheck"
 # Verify outbound connectivity
 # pod_id=$(kubectl -n $ns2_name get pod -l run=sqlapi -o json | jq -r '.items[0].metadata.name')
 # kubectl -n $ns2_name exec -it $pod_id -- curl ifconfig.co
-curl -s "http://${aks_sqlapi_ip}:8080/sql"
+curl -s "http://${aks_sqlapi_ip}:8080/api/sql"
 ```
 
 Our first action will be denying all network communication, and verifying:
@@ -512,10 +612,10 @@ Our first action will be denying all network communication, and verifying:
 base_url="https://raw.githubusercontent.com/erjosito/whoami/master/k8s"
 kubectl -n $ns2_name apply -f "${base_url}/netpol-sqlapi-deny-all.yaml"
 # Verify inbound connectivity (it should NOT work and timeout, feel free to Ctrl-C the operation)
-ssh $vm_pip "curl -s http://${pod_ip}:8080/healthcheck"
+ssh $vm_pip "curl -s http://${pod_ip}:8080/api/healthcheck"
 # Verify outbound connectivity (it should NOT work and timeout, feel free to Ctrl-C the operation)
 # kubectl -n $ns2_name exec -it $pod_id -- curl ifconfig.co
-curl -s "http://${aks_sqlapi_ip}:8080/sql"
+curl -s "http://${aks_sqlapi_ip}:8080/api/sql"
 ```
 
 Now you can add a second policy that will allow egress communication to the SQL Server public IP address, we can verify whether it is working:
@@ -525,10 +625,10 @@ Now you can add a second policy that will allow egress communication to the SQL 
 sql_server_pip=$(nslookup ${sql_server_fqdn} | awk '/^Address: / { print $2 }')
 curl -s "${base_url}/netpol-sqlapi-allow-egress-oneipvariable.yaml" | awk '{sub(/{{ip_address}}/,"'$sql_server_pip'")}1' | kubectl -n $ns2_name apply -f -
 # Verify inbound connectivity (it should NOT work and timeout, feel free to Ctrl-C the operation)
-ssh $vm_pip "curl -s http://${pod_ip}:8080/healthcheck"
+ssh $vm_pip "curl -s http://${pod_ip}:8080/api/healthcheck"
 # Verify outbound connectivity (it should now work)
 # kubectl -n $ns2_name exec -it $pod_id -- curl ifconfig.co
-curl -s "http://${aks_sqlapi_ip}:8080/sql"
+curl -s "http://${aks_sqlapi_ip}:8080/api/sql"
 ```
 
 ```shell
@@ -536,7 +636,7 @@ curl -s "http://${aks_sqlapi_ip}:8080/sql"
 kubectl apply -f "${base_url}/netpol-sqlapi-allow-egress-all.yaml"
 pod_id=$(kubectl get pod -l run=sqlapi -o json | jq -r '.items[0].metadata.name')
 # Verify inbound connectivity
-ssh $vm_pip "curl http://${pod_ip}:8080/healthcheck"
+ssh $vm_pip "curl http://${pod_ip}:8080/api/healthcheck"
 # Verify outbound connectivity
 kubectl exec -it $pod_id -- ping 8.8.8.8
 ```
@@ -589,17 +689,18 @@ az webapp create -n $app_name_api -g $rg -p $svcplan_name --deployment-container
 az webapp config appsettings set -n $app_name_api -g $rg --settings "WEBSITES_PORT=8080" "SQL_SERVER_USERNAME=$sql_username" "SQL_SERVER_PASSWORD=$sql_password" "SQL_SERVER_FQDN=${sql_server_fqdn}"
 az webapp restart -n $app_name_api -g $rg
 app_url_api=$(az webapp show -n $app_name_api -g $rg --query defaultHostName -o tsv)
-curl "http://${app_url_api}/healthcheck"
+# Note: it might take some seconds for the web app to come up and answer successfully the following command
+curl "http://${app_url_api}/api/healthcheck"
 ```
 
 As usual, we need to add the outbound public IP of the Web App to the firewall rules of the SQL Server, and verify that SQL access is working properly:
 
 ```shell
 # SQL Server firewall rules
-sqlapi_webapp_source_ip=$(curl -s http://${app_url_api}/ip | jq -r .my_public_ip)
+sqlapi_webapp_source_ip=$(curl -s http://${app_url_api}/api/ip | jq -r .my_public_ip)
 az sql server firewall-rule create -g $rg -s $sql_server_name -n webapp-sqlapi-source --start-ip-address $sqlapi_webapp_source_ip --end-ip-address $sqlapi_webapp_source_ip
 az sql server firewall-rule list -g $rg -s $sql_server_name -o table
-curl -s "http://${app_url_api}/sql"
+curl -s "http://${app_url_api}/api/sqlversion"
 ```
 
 Now we can deploy a second app in our service plan with the web component:
@@ -644,7 +745,7 @@ sql_endpoint_ip=$(az network nic show --ids $nic_id --query 'ipConfigurations[0]
 Before moving on, let's make a note on the egress public IP that the Web App is using to reach out to the Internet:
 
 ```shell
-old_webapp_source_ip=$(curl -s http://${app_url_api}:8080/ip | jq -r .my_public_ip)
+old_webapp_source_ip=$(curl -s http://${app_url_api}/api/ip | jq -r .my_public_ip)
 echo "Before vnet integration, the egress IP address for the web app is ${old_webapp_source_ip}"
 ```
 
@@ -652,24 +753,53 @@ Now we can integrate the Web App with the vnet, and verify that the web app has 
 
 ```shell
 # Vnet integration
-az webapp vnet-integration add -n $app_name_api -g $rg --vnet $vnet_name --subnet-name $subnet_webapp_be_name
-new_webapp_source_ip=$(curl -s http://${app_url_api}:8080/ip | jq -r .my_public_ip)
+az webapp vnet-integration add -n $app_name_api -g $rg --vnet $vnet_name --subnet $subnet_webapp_be_name
+new_webapp_source_ip=$(curl -s http://${app_url_api}/api/ip | jq -r .my_public_ip)
 echo "After vnet integration, the egress IP address for the web app is ${new_webapp_source_ip}"
 ```
 
-Now we can instruct the web app to reach the SQL Server on the private IP address:
+We need to configure our test VM as DNS server:
 
 ```shell
-# Modify API settings
-az webapp config appsettings set -n $app_name_api -g $rg --settings "SQL_SERVER_FQDN=${sql_endpoint_ip}"
+dnsserver_ip=$(az network public-ip show  -g $rg -n $vm_pip_name --query ipAddress -o tsv)
+dnsserver_nic_id=$(az vm show -n $vm_name -g $rg --query 'networkProfile.networkInterfaces[0].id' -o tsv)
+dnsserver_privateip=$(az network nic show --ids $dnsserver_nic_id --query 'ipConfigurations[0].privateIpAddress' -o tsv)
+echo "DNS server deployed to $dnsserver_privateip, $dnsserver_ip"
+echo "Verifying name resolution for ${sql_server_fqdn}:"
+ssh $dnsserver_ip "nslookup ${sql_server_fqdn}"
+echo "IP configuration of the VM:"
+ssh $dnsserver_ip "ip a"
+echo "Installing DNS:"
+ssh $dnsserver_ip "sudo apt -y install apache2 dnsmasq"
+```
+
+If you didnt already have a private DNS zone from previous labs, you can create it like this:
+
+```shell
+# Create Azure DNS private zone and records: database.windows.net
+dns_zone_name=database.windows.net
+az network private-dns zone create -n $dns_zone_name -g $rg 
+az network private-dns link vnet create -g $rg -z $dns_zone_name -n myDnsLink --virtual-network $vnet_name --registration-enabled false
+# Create record (private dns zone integration not working in the CLI)
+az network private-dns record-set a create -n $sql_server_name -z $dns_zone_name -g $rg
+az network private-dns record-set a add-record --record-set-name $sql_server_name -z $dns_zone_name -g $rg -a $sql_endpoint_ip
+# Verification: list recordsets in the zone
+az network private-dns record-set list -z $dns_zone_name -g $rg -o table
+az network private-dns record-set a show -n $sql_server_name -z $dns_zone_name -g $rg --query aRecords -o table
+```
+
+And we need to configure our app to use the DNS server we just installed:
+
+```shell
+az webapp config appsettings set -n $app_name_api -g $rg --settings "WEBSITE_DNS_SERVER=${dnsserver_privateip}"
 az webapp restart -n $app_name_api -g $rg
 ```
 
-We can now verify whether the web app has the new setting, and whether connectivity to the SQL server is working:
+We can test now the resolution of the SQL Server FQDN, and access to the database over the internal IP address:
 
 ```shell
-curl "http://${app_url_api}:8080/ip"
-curl "http://${app_url_api}:8080/sql"
+curl -s "http://${app_url_api}/api/dns?fqdn=${sql_server_fqdn}"
+curl -s "http://${app_url_api}/api/sqlversion"
 ```
 
 ### Lab 5.2. Azure App Services with Vnet integration and private link: frontend - NOT AVAILABLE YET<a name="lab5.2"></a>
@@ -692,13 +822,15 @@ Now we can create a private endpoint for our web app:
 
 ```shell
 # Webapp private endpoint
-subnet_webapp_fe_name=webapp-be
+subnet_webapp_fe_name=webapp-fe
 subnet_webapp_fe_prefix=192.168.6.0/24
 az network vnet subnet create -g $rg --vnet-name $vnet_name -n $subnet_webapp_fe_name --address-prefix $subnet_webapp_fe_prefix
 webapp_endpoint_name=mywebep
-svcplan_id=$(az appservice plan show -n $appsvc_name -g $rg -o tsv --query id)
+svcplan_id=$(az appservice plan show -n $svcplan_name -g $rg -o tsv --query id)
+webapp_id=$(az webapp show -n $app_name_api -g $rg -o tsv --query id)
 az network vnet subnet update -n $subnet_webapp_fe_name -g $rg --vnet-name $vnet_name --disable-private-endpoint-network-policies true
-az network private-endpoint create -n $webapp_endpoint_name -g $rg --vnet-name $vnet_name --subnet $subnet_webapp_fe_name --private-connection-resource-id $svcplan_id --group-ids sqlServer --connection-name webappConnection
+# Which group-id? "site"?
+az network private-endpoint create -n $webapp_endpoint_name -g $rg --vnet-name $vnet_name --subnet $subnet_webapp_fe_name --private-connection-resource-id $webapp_id --group-ids site --connection-name webappConnection
 webapp_nic_id=$(az network private-endpoint show -n $endpoint_name -g $rg --query 'networkInterfaces[0].id' -o tsv)
 webapp_endpoint_ip=$(az network nic show --ids $nic_id --query 'ipConfigurations[0].privateIpAddress' -o tsv)
 ```
@@ -707,17 +839,7 @@ From our Virtual Machine we should now be able to reach the Web App on its priva
 
 ```shell
 # Reach the web app's private IP
-ssh $vm_pip "curl -s http://${webapp_endpoint_ip}:8080/healthcheck"
-```
-
-The last step would be configure the web frontend to use the API private endpoint:
-
-```shell
-# Vnet integration for the web frontend
-az webapp vnet-integration add -n $app_name_web -g $rg --vnet $vnet_name --subnet-name $subnet_webapp_be_name
-az webapp config appsettings set -n $app_name_web -g $rg --settings "API_URL=http://${webapp_endpoint_ip}"
-az webapp restart -n $app_name_web -g $rg
-echo "You can point your browser to http://${app_url_web} to verify the web front end"
+ssh $vm_pip "curl -s http://${webapp_endpoint_ip}:8080/api/healthcheck"
 ```
 
 ## Lab 6. Azure Windows Web App Services with Vnet integration and private link:<a name="lab6"></a>
@@ -849,7 +971,20 @@ dnsserver_privateip=$(az network nic show --ids $dnsserver_nic_id --query 'ipCon
 echo "DNS server deployed to $dnsserver_privateip, $dnsserver_ip"
 echo "IP configuration of the VM:"
 ssh $dnsserver_ip "ip a"
+ssh $dnsserver_ip "sudo apt -y update"
 ssh $dnsserver_ip "sudo apt -y install apache2 dnsmasq"
+```
+
+You could decide to use the previous test VM for DNS as well, in which case you can set the variables like this:
+
+```shell
+dnsserver_ip=$(az network public-ip show  -g $rg -n $vm_pip_name --query ipAddress -o tsv)
+dnsserver_nic_id=$(az vm show -n $vm_name -g $rg --query 'networkProfile.networkInterfaces[0].id' -o tsv)
+dnsserver_privateip=$(az network nic show --ids $dnsserver_nic_id --query 'ipConfigurations[0].privateIpAddress' -o tsv)
+echo "DNS server deployed to $dnsserver_privateip, $dnsserver_ip"
+echo "IP configuration of the VM:"
+ssh $dnsserver_ip "ip a"
+ssh $dnsserver_ip "sudo apt -y install apache2 dnsmasq-base"
 ```
 
 There are two options to force the web app to use the DNS server. The first one is configuring our DNS server as the default for the whole vnet. Bouncing the vnet integration (deleting and recreating) might be required so that the web app takes the changes:
@@ -857,9 +992,9 @@ There are two options to force the web app to use the DNS server. The first one 
 ```shell
 # Configure web app for DNS - Option 1:
 # DNS server as server for the vnet (required only if not setting the app setting)
-az network vnet update -n $vnet_name -g $g --dns-servers $dnsserver_privateip
+az network vnet update -n $vnet_name -g $rg --dns-servers $dnsserver_privateip
 # Bounce the vnet integration to take the new DNS config
-az webapp vnet-integration delete -n $app_name_api -g $rg 
+az webapp vnet-integration remove -n $app_name_api -g $rg
 az webapp vnet-integration add -n $app_name_api -g $rg --vnet $vnet_name --subnet $subnet_webapp_be_name
 ```
 
@@ -868,7 +1003,7 @@ The second option consists in instructing the web app to use the DNS server in t
 ```shell
 # Configure web app for DNS - Option 2:
 # Change web app DNS settings (https://www.azuretechguy.com/how-to-change-the-dns-server-in-azure-app-service)
-az webapp config appsettings set -n $app_name_api -g $rg --settings "WEBSITE_DNS_SERVER=${dnsserver_privateip}
+az webapp config appsettings set -n $app_name_api -g $rg --settings "WEBSITE_DNS_SERVER=${dnsserver_privateip}"
 az webapp restart -n $app_name_api -g $rg
 ```
 
