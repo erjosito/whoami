@@ -11,9 +11,14 @@ The labs described below include how to deploy these containers in different for
 
 * [Lab 1: Docker running locally](#lab1)
 * [Lab 2: Azure Container Instances with public IP addresses](#lab2)
-  * [Lab 2.1: Azure Container Instances with public IP addresses and MySQL](#lab2.1)
+  * [Lab 2.1: MySQL](#lab2.1)
+  * [Lab 2.2: App Gateway](#lab2.2)
 * [Lab 3: Azure Container Instances with private IP addresses](#lab3)
 * [Lab 4: Pods in an Azure Kubernetes Services cluster](#lab4)
+  * [Lab 4.1: Ingress Controller](#lab4.1)
+  * [Lab 4.1: Network Policies](#lab4.2)
+  * [Lab 4.1: AKS Private Cluster](#lab4.3)
+  * [Lab 4.4: Optional labs](#lab4.4)
 * [Lab 5: Azure Linux Web App with public IP addresses](#lab5)
   * [Lab 5.1: Azure Linux Web Application with Vnet integration](#lab5.1)
   * [Lab 5.2: Azure Linux Web App with private link for frontend (NOT AVAILABLE YET)](#lab5.2)
@@ -99,7 +104,7 @@ rg=containerlab
 location=westeurope
 az group create -n $rg -l $location
 # SQL Server and Database
-sql_server_name=myserver$RANDOM
+sql_server_name=sqlserver$RANDOM
 sql_db_name=mydb
 sql_username=azure
 sql_password=Microsoft123!
@@ -312,12 +317,12 @@ Optionally, you could do the same with the MySQL database (note that this featur
 
 ```shell
 # SQL Server private endpoint
-mysql_endpoint_name=mysql-ep
+mysql_endpoint_name=mysqlep
 mysql_server_id=$(az mysql server show -n $mysql_name -g $rg -o tsv --query id)
 az network private-endpoint create -n $mysql_endpoint_name -g $rg --vnet-name $vnet_name --subnet $subnet_sql_name --private-connection-resource-id $mysql_server_id --group-ids mysqlServer --connection-name mySqlConnection
 # Endpoint's private IP address
-mysql_nic_id=$(az network private-endpoint show -n $endpoint_name -g $rg --query 'networkInterfaces[0].id' -o tsv)
-mysql_endpoint_ip=$(az network nic show --ids $nic_id --query 'ipConfigurations[0].privateIpAddress' -o tsv)
+mysql_nic_id=$(az network private-endpoint show -n $mysql_endpoint_name -g $rg --query 'networkInterfaces[0].id' -o tsv)
+mysql_endpoint_ip=$(az network nic show --ids $mysql_nic_id --query 'ipConfigurations[0].privateIpAddress' -o tsv)
 echo "Private IP address for MySQL server ${mysql_name}: ${mysql_endpoint_ip}"
 nslookup ${mysql_name}.privatelink.database.windows.net
 ```
@@ -434,7 +439,7 @@ ssh $vm_pip "curl -s http://${aci_web_ip}"
 
 ## Lab 4. AKS cluster in a Virtual Network<a name="lab4"></a>
 
-For this lab we will use Azure Kubernetes Service (AKS). The first thing we need is a cluster. We will deploy an AKS cluster in our own vnet, so we will create the vnet first. We will create the SQL private endpoint as in lab 3 as well. Note that you might have to activate the features required for AKS private clusters (see [this link](https://docs.microsoft.com/azure/aks/private-clusters)):
+For this lab we will use Azure Kubernetes Service (AKS). The first thing we need is a cluster. We will deploy an AKS cluster in our own vnet, so we will create the vnet first. We will create the SQL private endpoint as in lab 3 as well.
 
 ```shell
 # Resource group
@@ -452,11 +457,11 @@ subnet_sql_prefix=192.168.2.0/24
 az network vnet create -g $rg -n $vnet_name --address-prefix $vnet_prefix -l $location
 az network vnet subnet create -g $rg --vnet-name $vnet_name -n $subnet_aks_name --address-prefix $subnet_aks_prefix
 az network vnet subnet create -g $rg --vnet-name $vnet_name -n $subnet_sql_name --address-prefix $subnet_sql_prefix
-# AKS (Azure CNI plugin, Azure network policy, private API server)
+# AKS (Azure CNI plugin, Azure network policy)
 aks_name=aks
 aks_node_size=Standard_B2ms
 aks_subnet_id=$(az network vnet subnet show -n $subnet_aks_name --vnet-name $vnet_name -g $rg --query id -o tsv)
-az aks create -n $aks_name -g $rg -c 1 -s $aks_node_size --generate-ssh-keys --network-plugin azure --network-policy azure --vnet-subnet-id $aks_subnet_id --enable-private-cluster --no-wait
+az aks create -n $aks_name -g $rg -c 1 -s $aks_node_size --generate-ssh-keys --network-plugin azure --network-policy azure --vnet-subnet-id $aks_subnet_id --no-wait
 # Azure SQL
 sql_db_name=mydb
 sql_username=azure
@@ -465,11 +470,11 @@ az sql server create -n $sql_server_name -g $rg -l $location --admin-user $sql_u
 sql_server_fqdn=$(az sql server show -n $sql_server_name -g $rg -o tsv --query fullyQualifiedDomainName)
 az sql db create -n $sql_db_name -s $sql_server_name -g $rg -e Basic -c 5 --no-wait
 # SQL Server private endpoint
-endpoint_name=mysqlep
+sql_endpoint_name=sqlep
 sql_server_id=$(az sql server show -n $sql_server_name -g $rg -o tsv --query id)
 az network vnet subnet update -n $subnet_sql_name -g $rg --vnet-name $vnet_name --disable-private-endpoint-network-policies true
-az network private-endpoint create -n $endpoint_name -g $rg --vnet-name $vnet_name --subnet $subnet_sql_name --private-connection-resource-id $sql_server_id --group-ids sqlServer --connection-name sqlConnection
-nic_id=$(az network private-endpoint show -n $endpoint_name -g $rg --query 'networkInterfaces[0].id' -o tsv)
+az network private-endpoint create -n $sql_endpoint_name -g $rg --vnet-name $vnet_name --subnet $subnet_sql_name --private-connection-resource-id $sql_server_id --group-ids sqlServer --connection-name sqlConnection
+nic_id=$(az network private-endpoint show -n $sql_endpoint_name -g $rg --query 'networkInterfaces[0].id' -o tsv)
 sql_endpoint_ip=$(az network nic show --ids $nic_id --query 'ipConfigurations[0].privateIpAddress' -o tsv)
 echo "The SQL Server is reachable over the private IP address ${sql_endpoint_ip}"
 # Create Azure DNS private zone and records
@@ -545,7 +550,15 @@ aks_sqlweb_ip=$(kubectl -n $ns1_name get svc/sqlweb -o json | jq -rc '.status.lo
 echo "Point your web browser to http://${aks_sqlweb_ip}"
 ```
 
-### Lab 4.1: protect the AKS cluster with network policies - WORK IN PROGRESS
+### Lab 4.1: Install an nginx ingress controller - WORK IN PROGRESS<a name="lab4.1"></a>
+
+In this lab we will install our ingress controller in front of our two pods. We will not use the Application Gateway Ingress Controller, since it is not fully integrated in the AKS CLI yet, but the open source nginx. You can install an installation guide for nginx with helm [here[(https://docs.nginx.com/nginx-ingress-controller/installation/installation-with-helm/)]. For example, for helm3:
+
+```shell
+helm install my-release nginx-stable/nginx-ingress
+```
+
+### Lab 4.2: protect the AKS cluster with network policies - WORK IN PROGRESS<a name="lab4.2"></a>
 
 As our AKS cluster stands, anybody can connect to both the web frontend and the API pods. In Kubernetes you can use Network Policies to restrict ingress or egress connectivity for a container. Sample network policies are provided in this repository, in the [k8s](k8s) directory.
 
@@ -556,7 +569,7 @@ In order to test access a Virtual Machine inside of the Virtual Network will be 
 subnet_vm_name=vm
 subnet_vm_prefix=192.168.10.0/24
 vm_name=testvm
-vm_size=Standard_D2_v3
+vm_size=Standard_D2_v3 # Since using spot, B-series doesnt support spot
 vm_pip_name=${vm_name}-pip
 az network vnet subnet create -g $rg --vnet-name $vnet_name -n $subnet_vm_name --address-prefix $subnet_vm_prefix
 az vm create -n $vm_name -g $rg --vnet-name $vnet_name --subnet $subnet_vm_name --public-ip-address $vm_pip_name --generate-ssh-keys --image ubuntuLTS --priority Low --size $vm_size --no-wait
@@ -649,7 +662,71 @@ aks_node_ip=$(kubectl get node -o wide -o json | jq -r '.items[0].status.address
 ssh -J $vm_pip $aks_node_ip
 ```
 
-### Lab 4.2: further exercises<a name="lab4.2"></a>
+### Lab 4.3: Private cluster and private link<a name="lab4.3"></a>
+
+You can create an AKS cluster where the masters have a private IP with the flag `--enable-private-cluster`. Note that you might have to activate the features required for AKS private clusters (see [this link](https://docs.microsoft.com/azure/aks/private-clusters)):
+
+```shell
+# Create AKS cluster with private master endpoint
+az aks create -n $aks_name -g $rg -c 1 -s $aks_node_size --generate-ssh-keys --network-plugin azure --network-policy azure --vnet-subnet-id $aks_subnet_id --enable-private-cluster --no-wait
+```
+
+When doing this, the master's IP will not be reachable from the public Internet, so unless you are connected to the vnet via VPN or ExpressRoute, you will have to run these execises from a Virtual Machine in the vnet. You can see the master's FQDN in the AKS cluster properties, and verify that it is not resolvable using global DNS:
+
+```shell
+# Find out FQDN of master
+aks_master_fqdn=$(az aks show -n $aks_name -g $rg --query 'privateFqdn' -o tsv)
+nslookup "$aks_master_fqdn"
+```
+
+However, it is resolvable from inside the virtual network, as we can verify with our test VM:
+
+```shell
+# Verify it is resolvable inside of the vnet
+ssh $vm_pip "nslookup ${aks_master_fqdn}"
+```
+
+This works because the `az aks create` created a private DNS zone in the node resource group where the AKS resources are located:
+
+```shell
+# Find out node resource group name
+node_rg=$(az aks show -n $aks_name -g $rg --query nodeResourceGroup -o tsv)
+# List DNS zones in the node RG
+az network private-dns zone list -g $node_rg -o table
+# List recordsets in that DNS zone
+aks_dnszone_name=$(az network private-dns zone list -g $node_rg --query '[0].name' -o tsv)
+az network private-dns record-set list -z $aks_dnszone_name -g $node_rg -o table
+```
+
+Where does the private IP address of the AKS masters come from? It is a private endpoint deployed in the node resource group:
+
+```shell
+# Private endpoint for AKS master nodes in the node Resource Group
+az network private-endpoint list -g $node_rg -o table
+aks_endpoint_name=$(az network private-endpoint list -g $node_rg --query '[0].name' -o tsv)
+aks_nic_id=$(az network private-endpoint show -n $aks_endpoint_name -g $node_rg --query 'networkInterfaces[0].id' -o tsv)
+aks_endpoint_ip=$(az network nic show --ids $aks_nic_id --query 'ipConfigurations[0].privateIpAddress' -o tsv)
+echo "The AKS masters are reachable over the IP ${aks_endpoint_ip}"
+```
+
+The only way to access the cluster is from inside the Virtual Network, so we will use the test VM for that:
+
+```shell
+# Install Az CLI in the test VM
+ssh $vm_pip 'curl -sL https://aka.ms/InstallAzureCLIDeb | sudo bash'
+# Install kubectl
+ssh $vm_pip 'sudo apt-get update && sudo apt-get install -y apt-transport-https'
+ssh $vm_pip 'curl -s https://packages.cloud.google.com/apt/doc/apt-key.gpg | sudo apt-key add -'
+ssh $vm_pip 'echo "deb https://apt.kubernetes.io/ kubernetes-xenial main" | sudo tee -a /etc/apt/sources.list.d/kubernetes.list'
+ssh $vm_pip 'sudo apt-get update'
+ssh $vm_pip 'sudo apt-get install -y kubectl'
+# Login and download AKS credentials
+ssh $vm_pip 'az login'
+ssh $vm_pip "az aks get-credentials -n ${aks_name} -g ${rg} --overwrite"
+ssh $vm_pip 'kubectl get node -o wide'
+```
+
+### Lab 4.4: further exercises<a name="lab4.4"></a>
 
 Kubernetes in general is a functionality-technology. You can extend this lab by incorporating multiple concepts, here some examples (the list is not exhaustive by far):
 
@@ -667,13 +744,14 @@ For this lab we will use Azure Application Services for Linux. Let us create a r
 # Resource group
 rg=containerlab
 location=westeurope
-sql_server_name=myserver$RANDOM
 az group create -n $rg -l $location
 # Azure SQL
+sql_server_name=myserver$RANDOM
 sql_db_name=mydb
 sql_username=azure
 sql_password=Microsoft123!
-az sql server create -n $sql_server_name -g $rg -l $location --admin-user $sql_username --admin-password $sql_password --no-wait
+az sql server create -n $sql_server_name -g $rg -l $location --admin-user $sql_username --admin-password $sql_password
+az sql db create -n $sql_db_name -s $sql_server_name -g $rg -e Basic -c 5 --no-wait
 sql_server_fqdn=$(az sql server show -n $sql_server_name -g $rg -o tsv --query fullyQualifiedDomainName)
 ```
 
@@ -693,7 +771,7 @@ app_url_api=$(az webapp show -n $app_name_api -g $rg --query defaultHostName -o 
 curl "http://${app_url_api}/api/healthcheck"
 ```
 
-As usual, we need to add the outbound public IP of the Web App to the firewall rules of the SQL Server, and verify that SQL access is working properly:
+As with previous labs, we need to add the outbound public IP of the Web App to the firewall rules of the SQL Server, and verify that SQL access is working properly:
 
 ```shell
 # SQL Server firewall rules
@@ -712,6 +790,158 @@ az webapp config appsettings set -n $app_name_web -g $rg --settings "API_URL=htt
 az webapp restart -n $app_name_web -g $rg
 app_url_web=$(az webapp show -n $app_name_web -g $rg --query defaultHostName -o tsv)
 echo "You can point your browser to http://${app_url_web} to verify the front end"
+```
+
+### Lab 5.2. Azure Key Vault, Azure Application Gateway and certificates - WORK IN PROGRESS<a name="lab5"></a>
+
+```shell
+# Create key vault and import certificate
+# The cert must be P12 and not PEM to be correctly imported from the webapp
+keyvault_name=akv$RANDOM
+cert_name=mycert
+cert_file_name=mycert.pfx  # cert with private key
+cert_file_password=yoursupersecretpassword # Password with which you exported the certificate
+az keyvault create -n $keyvault_name -g $rg -l $location
+az keyvault certificate import -n $cert_name --vault-name $keyvault_name -f $cert_file_name --password $cert_file_password
+```
+
+```shell
+# Configure logging for key vault
+storage_account_name=storage$RANDOM
+az storage account create -n $storage_account_name -g $rg --sku Standard_LRS
+storage_account_id=$(az storage account show -n $storage_account_name -g $rg --query id -o tsv)
+storage_account_key=$(az storage account keys list -n $storage_account_name -g $rg --query '[0].value' -o tsv)
+keyvault_id=$(az keyvault show -n $keyvault_name -g $rg --query id -o tsv)
+az monitor diagnostic-settings create --resource $keyvault_id -n akvdiagnostics --storage-account $storage_account_name --logs '[
+        {
+          "category": "AuditEvent",
+          "enabled": true,
+          "retentionPolicy": {
+            "enabled": false,
+            "days": 0
+          }
+        }
+      ]'
+container='insights-logs-auditevent'
+log_filename=/tmp/akv_audit.log
+# Create a dummy secret to test the logs
+az keyvault secret set --vault-name $keyvault_name -n dummysecret --value dummyvalue
+# It might take some seconds to generate the log blob
+az storage blob list --account-name $storage_account_name --account-key $storage_account_key -c $container --query '[].name' -o tsv
+```
+
+```shell
+# Take the name of the last blob and print it jq-filtered
+blob_name=$(az storage blob list --account-name $storage_account_name --account-key $storage_account_key -c $container --query '[-1].name' -o tsv)
+az storage blob download --account-name $storage_account_name --account-key $storage_account_key -c $container -n $blob_name -f $log_filename >/dev/null
+jq -r '[.time, .identity.claim.appid, .operationName, .resultSignature, .callerIpAddress] | @tsv' $log_filename
+```
+
+```shell
+# Modify default access action to Deny and add our own IP address
+az keyvault update -n $keyvault_name -g $rg --default-action Deny
+my_pip=$(curl -s4 ifconfig.co)
+az keyvault network-rule add -n $keyvault_name -g $rg --ip-address $my_pip
+```
+
+```shell
+# Optionally, add the last unauthorized IP to the list of allowed addresses
+last_pip=$(jq -r 'select(.resultSignature == "Unauthorized") | .callerIpAddress' $log_filename | tail -1)
+last_pip_org=$(curl -s "https://ipapi.co/${last_pip}/json/" | jq -r '.org')
+if [[ $last_pip_org == "MICROSOFT-CORP-MSN-AS-BLOCK" ]]
+then
+  echo "IP address ${last_pip} belongs to ${last_pip_org}, adding to the list of allowed IP addresses"
+  az keyvault network-rule add -n $keyvault_name -g $rg --ip-address $last_pip
+else
+  echo "IP address ${last_pip} does not belong to Microsoft, but to $last_pip_org"
+fi
+```
+
+```shell
+# Import SSL cert to web app
+websites_objectid=f8daea97-62e7-4026-becf-13c2ea98e8b4 # Microsoft.Azure.WebSites SP
+az keyvault set-policy -n $keyvault_name -g $rg --object-id $websites_objectid \
+    --certificate-permissions get getissuers list listissuers \
+    --secret-permissions get list
+#keyvault_id=$(az keyvault show -n $keyvault_name -g $rg --query id -o tsv)
+#az role assignment create --assignee-object-id $websites_objectid --scope $keyvault_id --role Reader # this shouldnt be required
+cert_id=$(az keyvault certificate show --vault-name $keyvault_name -n $cert_name --query id -o tsv)
+az webapp config ssl import -n $app_name_api -g $rg --key-vault $keyvault_name --key-vault-certificate-name $cert_name
+# Custom hostname
+webapp_custom_hostname=sqlapi-webapp
+webapp_custom_domain=contoso.com
+webapp_custom_fqdn=${webapp_custom_hostname}.${webapp_custom_domain}
+# Update DNS (assuming a DNS zone for the domain exists in the current subscription)
+zone_name=$(az network dns zone list -o tsv --query "[?name=='${webapp_custom_domain}'].name")
+if [[ "$zone_name" == "$webapp_custom_domain" ]]
+then
+     zone_rg=$(az network dns zone list -o tsv --query "[?name=='${webapp_custom_domain}'].resourceGroup")
+     echo "Azure DNS zone ${webapp_custom_domain} found in resource group ${zone_rg}, using Azure DNS for accessing the app"
+     az network dns record-set cname set-record -z ${webapp_custom_domain} -n ${webapp_custom_hostname} -g $zone_rg -c ${app_url_api}
+     az webapp config hostname add --webapp-name $app_name_api -g $rg --hostname $webapp_custom_fqdn
+     echo "Point your browser to https://${webapp_custom_fqdn}"
+else
+     echo "Azure DNS zone ${webapp_custom_domain} not found in subscription, you might want to use the domain nip.io for this web app"
+fi
+# Bind certificate to custom domain
+cert_thumbprint=$(az keyvault certificate show --vault-name $keyvault_name -n $cert_name --query x509ThumbprintHex -o tsv)
+az webapp config ssl bind -n $app_name_api -g $rg --certificate-thumbprint $cert_thumbprint --ssl-type sni
+echo "Point your browser to https://${webapp_custom_fqdn}/api/healthcheck"
+```
+
+```shell
+# Create vnet and App Gw
+vnet_name=myvnet
+vnet_prefix=192.168.0.0/16
+az network vnet create -g $rg -n $vnet_name --address-prefix $vnet_prefix -l $location
+subnet_appgw_name=ApplicationGateway
+subnet_appgw_prefix=192.168.75.0/24
+appgw_name=myappgw
+appgw_sku=Standard_v2
+appgw_pipname=${appgw_name}-pip
+az network vnet subnet create -g $rg --vnet-name $vnet_name -n $subnet_appgw_name --address-prefix $subnet_appgw_prefix
+az network public-ip create -g $rg -n $appgw_pipname --sku Standard -l $location
+az network application-gateway create -g $rg -n $appgw_name -l $location \
+        --capacity 2 --sku $appgw_sku --frontend-port 80 \
+        --routing-rule-type basic --http-settings-port 80 \
+        --http-settings-protocol Http --public-ip-address $appgw_pipname \
+        --vnet-name $vnet_name --subnet $subnet_appgw_name \
+        --servers dummy.com --no-wait
+appgw_pip=$(az network public-ip show -n $appgw_pipname -g $rg --query ipAddress -o tsv)
+```
+
+```shell
+# Create service endpoint for the app gw to access the keyvault privately
+az keyvault network-rule list -n $keyvault_name -g $rg -o table
+subnet_appgw_id=$(az network vnet subnet show --vnet-name $vnet_name -n $subnet_appgw_name -g $rg --query id -o tsv)
+az network vnet subnet update -n $subnet_appgw_name --vnet-name $vnet_name -g $rg --service-endpoints Microsoft.KeyVault
+az keyvault network-rule add -n $keyvault_name -g $rg --subnet $subnet_appgw_id
+```
+
+```shell
+# Allow GatewayManager IP address in the AKV ***NOT WORKING***
+# GatewayManager prefixes not in the JSON file for ip ranges nor in the command az network list-service-tags (GatewayManager is a non-regional svc tag)
+url1=https://www.microsoft.com/en-us/download/confirmation.aspx?id=56519
+url2=$(curl -Lfs "${url1}" | grep -Eoi '<a [^>]+>' | grep -Eo 'href="[^\"]+"' | grep "download.microsoft.com/download/" | grep -m 1 -Eo '(http|https)://[^"]+')
+prefixes=$(curl -s $url2 | jq -c '.values[] | select(.name | contains ("GatewayManager")) | .properties.addressPrefixes')
+prefixes2=$(echo $prefixes | tr -d "[]," | tr -s '"' ' ')
+i=0
+for prefix in $prefixes2; do i=$((i+1)); az keyvault network-rule add -n $keyvault_name -g $rg --ip-address $prefix; done
+```
+
+```shell
+# Import cert from keyvault into app gateway
+appgw_identity_name=appgw
+az identity create -n $appgw_identity_name -g $rg
+appgw_identity_id=$(az identity show -g $rg -n $appgw_identity_name --query id -o tsv)
+appgw_identity_principalid=$(az identity show -g $rg -n $appgw_identity_name --query principalId -o tsv)
+appgw_identity_objectid=$(az ad sp show --id $appgw_identity_principalid --query objectId -o tsv)
+az network application-gateway identity assign -g $rg --gateway-name $appgw_name --identity $appgw_identity_id
+az keyvault set-policy -n $keyvault_name -g $rg --object-id $appgw_identity_objectid --certificate-permissions get getissuers list listissuers --secret-permissions get list
+az keyvault update -n $keyvault_name -g $rg --enable-soft-delete
+cert_id=$(az keyvault certificate show --vault-name $keyvault_name -n $cert_name --query id -o tsv)
+#cert_id="https://${keyvault_name}.vault.azure.net/certificates/${cert_name}"
+az network application-gateway ssl-cert create --gateway-name $appgw_name -g $rg -n $cert_name --key-vault-secret-id $cert_id  # NOT WORKING!!!!
 ```
 
 ### Lab 5.1. Azure App Services with Vnet integration and private link<a name="lab5.1"></a>
@@ -734,12 +964,12 @@ We can start with the private endpoint for the SQL database, since we have alrea
 
 ```shell
 # SQL private endpoint
-endpoint_name=mysqlep
+sql_endpoint_name=sqlep
 sql_server_id=$(az sql server show -n $sql_server_name -g $rg -o tsv --query id)
 az network vnet subnet update -n $subnet_sql_name -g $rg --vnet-name $vnet_name --disable-private-endpoint-network-policies true
-az network private-endpoint create -n $endpoint_name -g $rg --vnet-name $vnet_name --subnet $subnet_sql_name --private-connection-resource-id $sql_server_id --group-ids sqlServer --connection-name sqlConnection
-nic_id=$(az network private-endpoint show -n $endpoint_name -g $rg --query 'networkInterfaces[0].id' -o tsv)
-sql_endpoint_ip=$(az network nic show --ids $nic_id --query 'ipConfigurations[0].privateIpAddress' -o tsv)
+az network private-endpoint create -n $sql_endpoint_name -g $rg --vnet-name $vnet_name --subnet $subnet_sql_name --private-connection-resource-id $sql_server_id --group-ids sqlServer --connection-name sqlConnection
+sql_nic_id=$(az network private-endpoint show -n $sql_endpoint_name -g $rg --query 'networkInterfaces[0].id' -o tsv)
+sql_endpoint_ip=$(az network nic show --ids $sql_nic_id --query 'ipConfigurations[0].privateIpAddress' -o tsv)
 ```
 
 Before moving on, let's make a note on the egress public IP that the Web App is using to reach out to the Internet:
@@ -811,7 +1041,8 @@ We can integrate the frontend of the webapp in our vnet as well, so that it is a
 subnet_vm_name=vm
 subnet_vm_prefix=192.168.10.0/24
 vm_name=testvm
-vm_size=Standard_D2_v3
+aks_node_size=Standard_B2ms
+vm_size=Standard_B2ms
 vm_pip_name=${vm_name}-pip
 az network vnet subnet create -g $rg --vnet-name $vnet_name -n $subnet_vm_name --address-prefix $subnet_vm_prefix
 az vm create -n $vm_name -g $rg --vnet-name $vnet_name --subnet $subnet_vm_name --public-ip-address $vm_pip_name --generate-ssh-keys --image ubuntuLTS --priority Low --size $vm_size --no-wait
@@ -831,8 +1062,8 @@ webapp_id=$(az webapp show -n $app_name_api -g $rg -o tsv --query id)
 az network vnet subnet update -n $subnet_webapp_fe_name -g $rg --vnet-name $vnet_name --disable-private-endpoint-network-policies true
 # Which group-id? "site"?
 az network private-endpoint create -n $webapp_endpoint_name -g $rg --vnet-name $vnet_name --subnet $subnet_webapp_fe_name --private-connection-resource-id $webapp_id --group-ids site --connection-name webappConnection
-webapp_nic_id=$(az network private-endpoint show -n $endpoint_name -g $rg --query 'networkInterfaces[0].id' -o tsv)
-webapp_endpoint_ip=$(az network nic show --ids $nic_id --query 'ipConfigurations[0].privateIpAddress' -o tsv)
+webapp_nic_id=$(az network private-endpoint show -n $webapp_endpoint_name -g $rg --query 'networkInterfaces[0].id' -o tsv)
+webapp_endpoint_ip=$(az network nic show --ids $webapp_nic_id --query 'ipConfigurations[0].privateIpAddress' -o tsv)
 ```
 
 From our Virtual Machine we should now be able to reach the Web App on its private IP:
@@ -929,12 +1160,12 @@ Let's now create a private endpoint for our SQL Server:
 
 ```shell
 # Create SQL private endpoint (note that there is no integration with private DNS from the CLI)
-endpoint_name=mysqlep
+sql_endpoint_name=sqlep
 sql_server_id=$(az sql server show -n $sql_server_name -g $rg -o tsv --query id)
 az network vnet subnet update -n $subnet_sql_name -g $rg --vnet-name $vnet_name --disable-private-endpoint-network-policies true
-az network private-endpoint create -n $endpoint_name -g $rg --vnet-name $vnet_name --subnet $subnet_sql_name --private-connection-resource-id $sql_server_id --group-ids sqlServer --connection-name sqlConnection
+az network private-endpoint create -n $sql_endpoint_name -g $rg --vnet-name $vnet_name --subnet $subnet_sql_name --private-connection-resource-id $sql_server_id --group-ids sqlServer --connection-name sqlConnection
 # Get private endpoint ip
-nic_id=$(az network private-endpoint show -n $endpoint_name -g $rg --query 'networkInterfaces[0].id' -o tsv)
+nsql_ic_id=$(az network private-endpoint show -n $sql_endpoint_name -g $rg --query 'networkInterfaces[0].id' -o tsv)
 sql_endpoint_ip=$(az network nic show --ids $nic_id --query 'ipConfigurations[0].privateIpAddress' -o tsv)
 echo "Private IP address for SQL server ${sql_server_name}: ${sql_endpoint_ip}"
 ```
