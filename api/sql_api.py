@@ -1,4 +1,3 @@
-import pyodbc
 import os
 import socket, struct
 import sys
@@ -10,6 +9,13 @@ import pymysql
 from flask import Flask
 from flask import request
 from flask import jsonify
+
+# Sometimes pyodbc is not required and cannot be installed
+# If pyodbc is not correclty imported the SQL calls will break
+try:
+    import pyodbc
+except:
+    pass
 
 def init_odbc(cx_string):
     cnxn = pyodbc.connect(cx_string)
