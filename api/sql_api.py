@@ -4,16 +4,17 @@ import sys
 import time
 import warnings
 import requests
-import pymysql
 
 from flask import Flask
 from flask import request
 from flask import jsonify
 
-# Sometimes pyodbc is not required and cannot be installed
-# If pyodbc is not correclty imported the SQL calls will break
+# If not using SQL APIs, pyodbc and pymysql are not required and cannot be installed
+# If pyodbc is not correclty imported the Azure SQL DB calls will break
+# If pymysql is not correclty imported the Azure SQL DB for MySQL calls will break
 try:
     import pyodbc
+    import pymysql
 except:
     pass
 
