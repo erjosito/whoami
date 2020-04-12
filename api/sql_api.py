@@ -246,7 +246,10 @@ def ip():
             mypip_json = requests.get(url).json()
             mypip = mypip_json['ip']
             if request.headers.getlist("X-Forwarded-For"):
-                forwarded_for = request.headers.getlist("X-Forwarded-For")[0]
+                try:
+                    forwarded_for = request.headers.getlist("X-Forwarded-For")[0]
+                except:
+                    forwarded_for = ""
             else:
                 forwarded_for = None
             sql_server_fqdn = get_variable_value('SQL_SERVER_FQDN')
