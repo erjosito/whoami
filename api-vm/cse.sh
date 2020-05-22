@@ -13,4 +13,5 @@ ACCEPT_EULA=Y apt-get install -y msodbcsql17 unixodbc-dev mssql-tools
 wget https://raw.githubusercontent.com/erjosito/whoami/master/api/sql_api.py
 wget https://raw.githubusercontent.com/erjosito/whoami/master/api/requirements.txt
 pip3 install -r requirements.txt
-nohup python3 sql_api.py
+# python3 sql_api.py &
+setsid python3 sql_api.py >/dev/null 2>&1
