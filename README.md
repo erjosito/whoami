@@ -23,6 +23,7 @@ The labs described below include how to deploy these containers in different for
   * [Lab 5.1: Azure Linux Web Application with Vnet integration](#lab5.1)
   * [Lab 5.2: Azure Linux Web App with private link for frontend (NOT AVAILABLE YET)](#lab5.2)
 * [Lab 6: Azure Windows Web App](#lab6)
+* [Lab 7: Azure Virtual Machine](#lab7)
 
 
 ## SQL API
@@ -391,7 +392,7 @@ As you can see, the container's DNS server is the Vnet's DNS server, however DNS
 
 ```shell
 # Create Azure DNS private zone and records
-dns_zone_name=database.windows.net
+dns_zone_name=privatelink.database.windows.net
 az network private-dns zone create -n $dns_zone_name -g $rg 
 az network private-dns link vnet create -g $rg -z $dns_zone_name -n myDnsLink --virtual-network $vnet_name --registration-enabled false
 az network private-dns record-set a create -n $sql_server_name -z $dns_zone_name -g $rg
@@ -478,7 +479,7 @@ nic_id=$(az network private-endpoint show -n $sql_endpoint_name -g $rg --query '
 sql_endpoint_ip=$(az network nic show --ids $nic_id --query 'ipConfigurations[0].privateIpAddress' -o tsv)
 echo "The SQL Server is reachable over the private IP address ${sql_endpoint_ip}"
 # Create Azure DNS private zone and records
-dns_zone_name=database.windows.net
+dns_zone_name=privatelink.database.windows.net
 az network private-dns zone create -n $dns_zone_name -g $rg
 az network private-dns link vnet create -g $rg -z $dns_zone_name -n myDnsLink --virtual-network $vnet_name --registration-enabled false
 az network private-dns record-set a create -n $sql_server_name -z $dns_zone_name -g $rg
@@ -1007,7 +1008,7 @@ If you didnt already have a private DNS zone from previous labs, you can create 
 
 ```shell
 # Create Azure DNS private zone and records: database.windows.net
-dns_zone_name=database.windows.net
+dns_zone_name=privatelink.database.windows.net
 az network private-dns zone create -n $dns_zone_name -g $rg 
 az network private-dns link vnet create -g $rg -z $dns_zone_name -n myDnsLink --virtual-network $vnet_name --registration-enabled false
 # Create record (private dns zone integration not working in the CLI)
@@ -1127,15 +1128,14 @@ We will now load the great app by [Jelle Druyts](https://github.com/jelledruyts/
 
 ```shell
 # load app
-app_file_url=https://raw.githubusercontent.com/jelledruyts/Playground/master/web/default.aspx
-app_file_name=default.aspx
+app_file_url=https://raw.githubusercontent.com/jelledruyts/InspectorGadget/master/Page/default.aspx
+app_file_name=test.aspx
 wget $app_file_url -O $app_file_name
 creds=($(az webapp deployment list-publishing-profiles -n $app_name_api -g $rg --query "[?contains(publishMethod, 'FTP')].[publishUrl,userName,userPWD]" --output tsv))
 # curl -T $app_file_name -u ${creds[1]}:${creds[2]} ${creds[0]}/
 curl -T $app_file_name -u ${creds[2]}:${creds[3]} ${creds[1]}/
 echo "Check out this URL: http://${app_url_api}/${app_file_name}"
 ```
-
 We should update the SQL Server firewall rules with the egress IP addresses of the firewall. In this lab we will just open up the firewall to all IP addresses, but in a production setup you would only allow the actual outbound IP addresses of the web app, that you can get with the command `az webapp show` (see below for the full syntax):
 
 ```shell
@@ -1174,7 +1174,7 @@ We can use Azure DNS private zones to provide DNS resolution for our web app, an
 
 ```shell
 # Create Azure DNS private zone and records: database.windows.net
-dns_zone_name=database.windows.net
+dns_zone_name=privatelink.database.windows.net
 az network private-dns zone create -n $dns_zone_name -g $rg 
 az network private-dns link vnet create -g $rg -z $dns_zone_name -n myDnsLink --virtual-network $vnet_name --registration-enabled false
 # Create record (private dns zone integration not working in the CLI)
@@ -1239,6 +1239,130 @@ az webapp restart -n $app_name_api -g $rg
 ```
 
 Now you can send the SQL uery over the app to `SELECT CONNECTIONPROPERTY('client_net_address')`, it should be using the private IP address
+
+## Lab 7. Azure Virtual Machines and private link:<a name="lab7"></a>
+
+We can run a similar lab based on Azure Virtual Machines. First we well deploy some basic infrastructure, if you are starting from scratch:
+
+```shell
+# Resource group
+rg=containerlab
+location=westeurope
+az group create -n $rg -l $location
+# Azure SQL
+sql_server_name=myserver$RANDOM
+sql_db_name=mydb
+sql_username=azure
+sql_password=Microsoft123!
+az sql server create -n $sql_server_name -g $rg -l $location --admin-user $sql_username --admin-password $sql_password
+az sql db create -n $sql_db_name -s $sql_server_name -g $rg -e Basic -c 5 --no-wait
+# Optionally test for serverless SKU
+# az sql db update -g $rg -s $sql_server_name -n $sql_db_name --edition GeneralPurpose --min-capacity 1 --capacity 4 --family Gen5 --compute-model Serverless --auto-pause-delay 1440
+sql_server_fqdn=$(az sql server show -n $sql_server_name -g $rg -o tsv --query fullyQualifiedDomainName)
+# Create Vnet
+vnet_name=myvnet
+vnet_prefix=192.168.0.0/16
+subnet_sql_name=sql
+subnet_sql_prefix=192.168.2.0/24
+subnet_vm_name=vm
+subnet_vm_prefix=192.168.13.0/24
+az network vnet create -g $rg -n $vnet_name --address-prefix $vnet_prefix -l $location
+az network vnet subnet create -g $rg --vnet-name $vnet_name -n $subnet_sql_name --address-prefix $subnet_sql_prefix
+az network vnet subnet create -g $rg --vnet-name $vnet_name -n $subnet_vm_name --address-prefix $subnet_vm_prefix
+```
+
+We will now create an Azure VM based on Ubuntu 18.04, and install the API code with a Custom Script Extension:
+
+```shell
+vm_name=vmapi
+vm_nsg_name=${vm_name}-nsg
+vm_pip_name=${vm_name}-pip
+vm_disk_name=${vm_name}-disk0
+vm_sku=Standard_B2ms
+publisher=Canonical
+offer=UbuntuServer
+sku=18.04-LTS
+image_urn=$(az vm image list -p $publisher -f $offer -s $sku -l $location --query '[0].urn' -o tsv)
+# Deploy VM
+az vm create -n $vm_name -g $rg -l $location --image $image_urn --size $vm_sku --generate-ssh-keys \
+  --os-disk-name $vm_disk_name --os-disk-size-gb 32 \
+  --vnet-name $vnet_name --subnet $subnet_vm_name \
+  --nsg $vm_nsg_name --nsg-rule SSH --public-ip-address $vm_pip_name
+# Add rule to NSG on port 8080
+az network nsg rule create -n TCP8080 --nsg-name $vm_nsg_name -g $rg \
+  --protocol Tcp --access Allow --priority 105 --direction Inbound \
+  --destination-port-ranges 8080
+# Install app, this will take a while (a bunch of apt updates, installs, etc).
+# You might have to Ctrl-C this, it hangs when executing the app (for some reason i am not able to run it as a background task)
+script_url=https://raw.githubusercontent.com/erjosito/whoami/master/api-vm/cse.sh
+script_command='./cse.sh'
+az vm extension set -n customScript --vm-name $vm_name -g $rg --publisher Microsoft.Azure.Extensions \
+  --protected-settings "{\"fileUris\": [\"${script_url}\"],\"commandToExecute\": \"${script_command}\"}"
+# Set environment variables
+# command="export SQL_SERVER_USERNAME=${sql_username} && export SQL_SERVER_PASSWORD=${sql_password}"
+# az vm run-command invoke -n $vm_name -g $rg --command-id RunShellScript --scripts "${command}"
+az vm run-command invoke -n $vm_name -g $rg --command-id RunShellScript --scripts 'export SQL_SERVER_USERNAME=$1 && export SQL_SERVER_PASSWORD=$2' \
+   --parameters $sql_username $sql_password
+# Get public IP
+vm_pip_ip=$(az network public-ip show -n $vm_pip_name -g $rg --query ipAddress -o tsv)
+echo "You can SSH to $vm_pip_ip"
+# Send a probe to the app
+curl -s ${vm_pip_ip}:8080/api/healthcheck
+```
+
+You can explore the different endpoints of the API:
+
+```
+curl -s ${vm_pip_ip}:8080/api/ip
+curl -s ${vm_pip_ip}:8080/api/printenv
+```
+
+We can now create a private link endpoint for our SQL database:
+
+```shell
+# Create private link endpoint
+sql_endpoint_name=sqlep
+sql_server_id=$(az sql server show -n $sql_server_name -g $rg -o tsv --query id)
+az network vnet subnet update -n $subnet_sql_name -g $rg --vnet-name $vnet_name --disable-private-endpoint-network-policies true
+az network private-endpoint create -n $sql_endpoint_name -g $rg --vnet-name $vnet_name --subnet $subnet_sql_name --private-connection-resource-id $sql_server_id --group-ids sqlServer --connection-name sqlConnection
+sql_nic_id=$(az network private-endpoint show -n $sql_endpoint_name -g $rg --query 'networkInterfaces[0].id' -o tsv)
+sql_endpoint_ip=$(az network nic show --ids $sql_nic_id --query 'ipConfigurations[0].privateIpAddress' -o tsv)
+echo "Private IP address for SQL server ${sql_server_name}: ${sql_endpoint_ip}"
+nslookup ${sql_server_fqdn}
+nslookup ${sql_server_name}.privatelink.database.windows.net
+```
+
+And the private DNS zone to our vnet with the privatelink record, so that the VM resolves the SQL Server's FQDN to the private IP:
+
+```shell
+# Create private DNS
+dns_zone_name=privatelink.database.windows.net
+az network private-dns zone create -n $dns_zone_name -g $rg
+az network private-dns link vnet create -g $rg -z $dns_zone_name -n myDnsLink --virtual-network $vnet_name --registration-enabled false
+az network private-dns record-set a create -n $sql_server_name -z $dns_zone_name -g $rg
+az network private-dns record-set a add-record --record-set-name $sql_server_name -z $dns_zone_name -g $rg -a $sql_endpoint_ip
+```
+
+We can use the DNS endpoint of our VM to verify dns resolution:
+
+```shell
+# DNS resolution verification
+curl -s "http://${vm_pip_ip}:8080/api/dns?fqdn=${sql_server_fqdn}"
+```
+
+We can see an interesting fact regarding private link endpoints: /32 routes are created. We can inspect the effective route table to verify that:
+
+```shell
+# Check effective routes generated by private link
+vm_nic_name=${vm_name}VMNic
+az network nic show-effective-route-table -n $vm_nic_name -g $rg -o table
+```
+
+And we can try to get reach the SQL Server over its private IP address:
+
+```shell
+curl "http://${vm_pip_ip}:8080/api/sqlsrcip?SQL_SERVER_FQDN=${sql_server_fqdn}&SQL_SERVER_USERNAME=blah&SQL_SERVER_PASSWORD=fasel"
+```
 
 ## Cleanup
 

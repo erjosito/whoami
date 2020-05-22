@@ -4,6 +4,7 @@ import sys
 import time
 import warnings
 import requests
+import dns.resolver
 
 from flask import Flask
 from flask import request
@@ -72,15 +73,16 @@ def handle_sql_variant_as_string(value):
     return value.decode('utf-8')
 
 
-def send_sql_query(sql_server_fqdn = None, sql_server_db = None, sql_query = 'SELECT @@VERSION'):
-    # Get variables
-    sql_server_username = get_variable_value('SQL_SERVER_USERNAME')
-    sql_server_password = get_variable_value('SQL_SERVER_PASSWORD')
+def send_sql_query(sql_server_fqdn = None, sql_server_db = None, sql_server_username = None, sql_server_password = None, sql_query = 'SELECT @@VERSION'):
     # Only set the sql_server_fqdn and db variable if not supplied as argument
     if sql_server_fqdn == None:
         sql_server_fqdn = get_variable_value('SQL_SERVER_FQDN')
     if sql_server_db == None:
         sql_server_db = get_variable_value('SQL_SERVER_DB')
+    if sql_server_username == None:
+        sql_server_username = get_variable_value('SQL_SERVER_USERNAME')
+    if sql_server_password == None:
+        sql_server_password = get_variable_value('SQL_SERVER_PASSWORD')
     # Check we have the right variables (note that SQL_SERVER_DB is optional)
     if sql_server_username == None or sql_server_password == None or sql_server_fqdn == None:
         print('DEBUG - Required environment variables not present')
@@ -141,26 +143,34 @@ app = Flask(__name__)
 
 # Get IP addresses of DNS servers
 def get_dns_ips():
-    dns_ips = []
-    with open('/etc/resolv.conf') as fp:
-        for cnt, line in enumerate(fp):
-            columns = line.split()
-            if columns[0] == 'nameserver':
-                ip = columns[1:][0]
-                if is_valid_ipv4_address(ip):
-                    dns_ips.append(ip)
-    return dns_ips
+    try:
+        dns_ips = []
+        with open('/etc/resolv.conf') as fp:
+            for cnt, line in enumerate(fp):
+                columns = line.split()
+                if columns[0] == 'nameserver':
+                    ip = columns[1:][0]
+                    if is_valid_ipv4_address(ip):
+                        dns_ips.append(ip)
+        return dns_ips
+        my_resolver = dns.resolver.Resolver()
+        return str(my_resolver.nameservers)
+    except:
+        return ''
 
 # Get default gateway
 def get_default_gateway():
     """Read the default gateway directly from /proc."""
-    with open("/proc/net/route") as fh:
-        for line in fh:
-            fields = line.strip().split()
-            if fields[1] != '00000000' or not int(fields[3], 16) & 2:
-                continue
-
-            return socket.inet_ntoa(struct.pack("<L", int(fields[2], 16)))
+    try:
+        with open("/proc/net/route") as fh:
+            for line in fh:
+                fields = line.strip().split()
+                if fields[1] != '00000000' or not int(fields[3], 16) & 2:
+                    continue
+                #return socket.inet_ntoa(struct.pack("<L", int(fields[2], 16)))
+                return socket.inet_ntoa(struct.pack("=", int(fields[2], 16)))
+    except:
+        return ""
 
 # Flask route for healthchecks
 @app.route("/api/healthcheck", methods=['GET'])
@@ -209,10 +219,12 @@ def sqlversion():
 def sqlsrcip():
     if request.method == 'GET':
         sql_query = 'SELECT CONNECTIONPROPERTY(\'client_net_address\')'
-        try:
+        try:           
             sql_server_fqdn = request.args.get('SQL_SERVER_FQDN')
             sql_server_db = request.args.get('SQL_SERVER_DB')
-            sql_output = send_sql_query(sql_server_fqdn=sql_server_fqdn, sql_server_db=sql_server_db, sql_query=sql_query)
+            sql_server_username = request.args.get('SQL_SERVER_USERNAME')
+            sql_server_password = request.args.get('SQL_SERVER_PASSWORD')
+            sql_output = send_sql_query(sql_server_fqdn=sql_server_fqdn, sql_server_db=sql_server_db, sql_query=sql_query, sql_server_username=sql_server_username, sql_server_password=sql_server_password)
             msg = {
             'sql_output': sql_output
             }          
@@ -247,21 +259,32 @@ def ip():
             mypip = mypip_json['ip']
             if request.headers.getlist("X-Forwarded-For"):
                 try:
-                    forwarded_for = request.headers.getlist("X-Forwarded-For")[0]
+                    forwarded_for = str(request.headers.getlist("X-Forwarded-For"))
                 except:
                     forwarded_for = ""
             else:
                 forwarded_for = None
             sql_server_fqdn = get_variable_value('SQL_SERVER_FQDN')
             sql_server_ip = get_ip(sql_server_fqdn)
+            app.logger.info('Getting our private IP address...')
+            myip    = str(get_ip(socket.gethostname()))
+            app.logger.info('Getting DNS servers IP addresses...')
+            dns_ips = str(get_dns_ips())
+            app.logger.info('Getting Default Gateway IP address...')
+            def_gwy = str(get_default_gateway())
+            app.logger.info('Gettting environment variables HTTP_HOST and PATH_INFO...')
+            rem_add = str(request.environ.get('REMOTE_ADDR', ''))
+            app.logger.info('Gettting environment variable REMOTE_ADDR...')
+            path    = str(request.environ['HTTP_HOST']) + str(request.environ['PATH_INFO'])
+            app.logger.info('Crafting response message...')
             msg = {
-                'my_private_ip': get_ip(socket.gethostname()),
+                'my_private_ip': myip,
                 'my_public_ip': mypip,
-                'my_dns_servers': get_dns_ips(),
-                'my_default_gateway': get_default_gateway(),
-                'your_address': str(request.environ.get('REMOTE_ADDR', '')),
+                'my_dns_servers': dns_ips,
+                'my_default_gateway': def_gwy,
+                'your_address': rem_add,
                 'x-forwarded-for': forwarded_for,
-                'path_accessed': request.environ['HTTP_HOST'] + request.environ['PATH_INFO'],
+                'path_accessed': path,
                 'your_platform': str(request.user_agent.platform),
                 'your_browser': str(request.user_agent.browser),
                 'sql_server_fqdn': str(sql_server_fqdn),

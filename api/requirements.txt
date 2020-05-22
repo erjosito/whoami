@@ -1,4 +1,5 @@
 flask
+dnspython
 requests
 pymysql
 pyodbc
