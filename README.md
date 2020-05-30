@@ -19,9 +19,9 @@ The labs described below include how to deploy these containers in different for
   * [Lab 4.1: Network Policies](#lab4.2)
   * [Lab 4.1: AKS Private Cluster](#lab4.3)
   * [Lab 4.4: Optional labs](#lab4.4)
-* [Lab 5: Azure Linux Web App with public IP addresses](#lab5)
-  * [Lab 5.1: Azure Linux Web Application with Vnet integration](#lab5.1)
-  * [Lab 5.2: Azure Linux Web App with private link for frontend (NOT AVAILABLE YET)](#lab5.2)
+* [Lab 5: Azure Linux Web App](#lab5)
+  * [Lab 5.1: Azure Linux Web Application with Vnet integration](#lab51)
+  * [Lab 5.2: Azure Linux Web App with private link for frontend (NOT AVAILABLE YET)](#lab52)
 * [Lab 6: Azure Windows Web App](#lab6)
 * [Lab 7: Azure Virtual Machine](#lab7)
 
@@ -80,7 +80,7 @@ Now you can start the SQL API container and refer it to the SQL server (assuming
 ```shell
 # Run API container
 sql_ip=$(docker inspect sql | jq -r '.[0].NetworkSettings.Networks.bridge.IPAddress')
-docker run -d -p 8080:8080 -e "SQL_SERVER_FQDN=${sql_ip}" -e "SQL_USERNAME=sa" -e "SQL_PASSWORD=${sql_password}" --name api erjosito/sqlapi:0.1
+docker run -d -p 8080:8080 -e "SQL_SERVER_FQDN=${sql_ip}" -e "SQL_SERVER_USERNAME=sa" -e "SQL_SERVER_PASSWORD=${sql_password}" --name api erjosito/sqlapi:0.1
 ```
 
 Now you can start the web interface, and refer to the IP address of the API (which you can find out from the `docker inspect` command)
@@ -432,7 +432,7 @@ Now we can create a web frontend that connects to the API container. We will giv
 
 ```shell
 # Create ACI for Web frontend
-az container create -n web -g $rg -e "API_URL=http://${aci_sqlapi_ip}" --image erjosito/whoami:0.1 --ip-address public --ports 80  --vnet $vnet_id --subnet $subnet_aci_id
+az container create -n web -g $rg -e "API_URL=http://${aci_sqlapi_ip}" --image erjosito/sqlapi:0.1 --ip-address public --ports 80  --vnet $vnet_id --subnet $subnet_aci_id
 aci_web_ip=$(az container show -n web -g $rg --query 'ipAddress.ip' -o tsv)
 ssh $vm_pip "curl -s http://${aci_web_ip}/healthcheck"
 ssh $vm_pip "curl -s http://${aci_web_ip}"
@@ -713,9 +713,9 @@ echo "The AKS masters are reachable over the IP ${aks_endpoint_ip}"
 The only way to access the cluster is from inside the Virtual Network, so we will use the test VM for that:
 
 ```shell
-# Install Az CLI in the test VM
+# Install Az CLI and kubectl in the test VM
 ssh $vm_pip 'curl -sL https://aka.ms/InstallAzureCLIDeb | sudo bash'
-# Install kubectl
+# kubectl
 ssh $vm_pip 'sudo apt-get update && sudo apt-get install -y apt-transport-https'
 ssh $vm_pip 'curl -s https://packages.cloud.google.com/apt/doc/apt-key.gpg | sudo apt-key add -'
 ssh $vm_pip 'echo "deb https://apt.kubernetes.io/ kubernetes-xenial main" | sudo tee -a /etc/apt/sources.list.d/kubernetes.list'
@@ -729,9 +729,9 @@ ssh $vm_pip 'kubectl get node -o wide'
 
 ### Lab 4.4: further exercises<a name="lab4.4"></a>
 
-Kubernetes in general is a functionality-technology. You can extend this lab by incorporating multiple concepts, here some examples (the list is not exhaustive by far):
+Kubernetes in general is a very rich functionality platform, and includes multiple network technologies. You can extend this lab by incorporating multiple concepts, here some examples (the list is not exhaustive by far):
 
-* Ingress controller: configure an ingress controller to offer a common public IP address for both the web frontend and the API backend 
+* Ingress controller: configure an ingress controller to offer a common public IP address for both the web frontend and the API backend
 * Pod identity and Azure Key Vault integration: inject the SQL password in the SQL API pod as a file injected from Key Vault, and not as an environment variable
 * Use a service mesh to provide TLS encryption in the connectivity between containers
 * Install Prometheus to measure metrics such as Requests per Second and configure alerts
@@ -739,12 +739,12 @@ Kubernetes in general is a functionality-technology. You can extend this lab by 
 
 ## Lab 5: Azure App Services for Linux<a name="lab5"></a>
 
-For this lab we will use Azure Application Services for Linux. Let us create a resource group and a SQL Server:
+For this lab we will use Azure Application Services for Linux. Let us create a resource group and a SQL Server. Regarding the location of the web app, eastus and westus2 are two good candidates, since it is where the preview for private link for webapps is running (see [here](https://docs.microsoft.com/azure/private-link/create-private-endpoint-webapp-portal)):
 
 ```shell
 # Resource group
 rg=containerlab
-location=westeurope
+location=eastus
 az group create -n $rg -l $location
 # Azure SQL
 sql_server_name=myserver$RANDOM
@@ -768,7 +768,7 @@ az webapp create -n $app_name_api -g $rg -p $svcplan_name --deployment-container
 az webapp config appsettings set -n $app_name_api -g $rg --settings "WEBSITES_PORT=8080" "SQL_SERVER_USERNAME=$sql_username" "SQL_SERVER_PASSWORD=$sql_password" "SQL_SERVER_FQDN=${sql_server_fqdn}"
 az webapp restart -n $app_name_api -g $rg
 app_url_api=$(az webapp show -n $app_name_api -g $rg --query defaultHostName -o tsv)
-# Note: it might take some seconds for the web app to come up and answer successfully the following command
+# Note: it might take some seconds/minutes for the web app to come up and answer successfully the following command
 curl "http://${app_url_api}/api/healthcheck"
 ```
 
@@ -782,7 +782,7 @@ az sql server firewall-rule list -g $rg -s $sql_server_name -o table
 curl -s "http://${app_url_api}/api/sqlversion"
 ```
 
-Now we can deploy a second app in our service plan with the web component:
+Now we can deploy a second app in our service plan with the web frontend component:
 
 ```shell
 # Create Web App for web frontend
@@ -793,7 +793,173 @@ app_url_web=$(az webapp show -n $app_name_web -g $rg --query defaultHostName -o 
 echo "You can point your browser to http://${app_url_web} to verify the front end"
 ```
 
-### Lab 5.2. Azure Key Vault, Azure Application Gateway and certificates - WORK IN PROGRESS<a name="lab5"></a>
+### Lab 5.1. Azure App Services with Vnet integration and private link<a name="lab51"></a>
+
+This lab is built on top of the previous one, you will need to have deployed the Web App and the SQL server before proceeding here (see the instructions in the previous section). Once you do that, we can integrate the Web App and the SQL Server in the Vnet. Let's start by creating the vnet with two subnets:
+
+```shell
+# Create Virtual Network and subnets
+vnet_name=myvnet
+vnet_prefix=192.168.0.0/16
+subnet_webapp_be_name=webapp-be
+subnet_webapp_be_prefix=192.168.5.0/24
+subnet_sql_name=sql
+subnet_sql_prefix=192.168.2.0/24
+az network vnet create -n $vnet_name -g $rg --address-prefix $vnet_prefix
+az network vnet subnet create -g $rg --vnet-name $vnet_name -n $subnet_webapp_be_name --address-prefix $subnet_webapp_be_prefix
+az network vnet subnet create -g $rg --vnet-name $vnet_name -n $subnet_sql_name --address-prefix $subnet_sql_prefix
+```
+
+We can start with the private endpoint for the SQL database, since we have already seen in previous labs how to do that:
+
+```shell
+# SQL private endpoint
+sql_endpoint_name=sqlep
+sql_server_id=$(az sql server show -n $sql_server_name -g $rg -o tsv --query id)
+az network vnet subnet update -n $subnet_sql_name -g $rg --vnet-name $vnet_name --disable-private-endpoint-network-policies true
+az network private-endpoint create -n $sql_endpoint_name -g $rg --vnet-name $vnet_name --subnet $subnet_sql_name --private-connection-resource-id $sql_server_id --group-id sqlServer --connection-name sqlConnection
+sql_nic_id=$(az network private-endpoint show -n $sql_endpoint_name -g $rg --query 'networkInterfaces[0].id' -o tsv)
+sql_endpoint_ip=$(az network nic show --ids $sql_nic_id --query 'ipConfigurations[0].privateIpAddress' -o tsv)
+```
+
+Before configuring private link for the web app, let's make a note on the egress public IP that the Web App is using to reach out to the Internet:
+
+```shell
+old_webapp_source_ip=$(curl -s http://${app_url_api}/api/ip | jq -r .my_public_ip)
+echo "Before vnet integration, the egress IP address for the web app is ${old_webapp_source_ip}"
+```
+
+Now we can integrate the Web App with the vnet, and verify that the web app has a new outbound public IP:
+
+```shell
+# Vnet integration
+az webapp vnet-integration add -n $app_name_api -g $rg --vnet $vnet_name --subnet $subnet_webapp_be_name
+az webapp vnet-integration list -n $app_name_api -g $rg -o table
+new_webapp_source_ip=$(curl -s http://${app_url_api}/api/ip | jq -r .my_public_ip)
+echo "After vnet integration, the egress IP address for the web app is ${new_webapp_source_ip} (the old one was ${old_webapp_source_ip})"
+```
+
+Let us verify DNS resolution for the SQL server's FQDN:
+
+```shell
+curl -s "http://${app_url_api}/api/dns?fqdn=${sql_server_fqdn}"
+```
+
+If it is not working, it means that the web app cannot leverage Azure's native DNS. A workaround is configuring a test VM that will act as DNS forwarder:
+
+We can integrate the frontend of the webapp in our vnet as well, so that it is accessible only from within the vnet or from on-premises. In order to test this, we will need a VM inside the virtual network:
+
+```shell
+# Create VM for testing purposes
+subnet_vm_name=vm
+subnet_vm_prefix=192.168.10.0/24
+vm_name=testvm
+aks_node_size=Standard_B2ms
+vm_size=Standard_B2ms
+vm_pip_name=${vm_name}-pip
+az network vnet subnet create -g $rg --vnet-name $vnet_name -n $subnet_vm_name --address-prefix $subnet_vm_prefix
+az vm create -n $vm_name -g $rg --vnet-name $vnet_name --subnet $subnet_vm_name --public-ip-address $vm_pip_name --generate-ssh-keys --image ubuntuLTS --size $vm_size
+vm_pip=$(az network public-ip show  -g $rg -n $vm_pip_name --query ipAddress -o tsv)
+```
+
+```shell 
+# Install a DNS server and apache on the test VM
+dnsserver_ip=$(az network public-ip show  -g $rg -n $vm_pip_name --query ipAddress -o tsv)
+dnsserver_nic_id=$(az vm show -n $vm_name -g $rg --query 'networkProfile.networkInterfaces[0].id' -o tsv)
+dnsserver_privateip=$(az network nic show --ids $dnsserver_nic_id --query 'ipConfigurations[0].privateIpAddress' -o tsv)
+echo "DNS server deployed to $dnsserver_privateip, $dnsserver_ip"
+echo "Verifying name resolution for ${sql_server_fqdn}:"
+ssh-keyscan -H $dnsserver_ip >> ~/.ssh/known_hosts
+ssh $dnsserver_ip "nslookup ${sql_server_fqdn}"
+echo "IP configuration of the VM:"
+ssh $dnsserver_ip "ip a"
+echo "Installing DNS:"
+ssh $dnsserver_ip "sudo apt update && sudo apt -y install apache2 dnsmasq"
+```
+
+Next step if configuring Azure DNS to resolve the privatelink zone to the internal IP address:
+
+```shell
+# Create Azure DNS private zone and records: database.windows.net
+dns_zone_name=privatelink.database.windows.net
+az network private-dns zone create -n $dns_zone_name -g $rg 
+az network private-dns link vnet create -g $rg -z $dns_zone_name -n myDnsLink --virtual-network $vnet_name --registration-enabled false
+# Create record (private dns zone integration not working in the CLI)
+az network private-dns record-set a create -n $sql_server_name -z $dns_zone_name -g $rg
+az network private-dns record-set a add-record --record-set-name $sql_server_name -z $dns_zone_name -g $rg -a $sql_endpoint_ip
+# Verification: list recordsets in the zone
+az network private-dns record-set list -z $dns_zone_name -g $rg -o table
+az network private-dns record-set a show -n $sql_server_name -z $dns_zone_name -g $rg --query aRecords -o table
+```
+
+And we need to configure our app to use the DNS server we just installed:
+
+```shell
+# Configure custom DNS server for webapp
+az webapp config appsettings set -n $app_name_api -g $rg --settings "WEBSITE_DNS_SERVER=${dnsserver_privateip}"
+az webapp restart -n $app_name_api -g $rg
+```
+
+We can test now the resolution of the SQL Server FQDN, and access to the database over the internal IP address:
+
+```shell
+# Verify DNS resolution and SQL access
+curl -s "http://${app_url_api}/api/dns?fqdn=${sql_server_fqdn}"
+curl -s "http://${app_url_api}/api/sqlversion"
+curl -s "http://${app_url_api}/api/sqlsrcip"
+```
+
+### Lab 5.2. Azure App Services with Vnet integration and private link: frontend<a name="lab52"></a>
+
+Now we can create a private endpoint for our web app, see [here](https://docs.microsoft.com/azure/private-link/create-private-endpoint-webapp-portal) for more information on private link for Web Apps:
+
+```shell
+# Webapp private endpoint
+subnet_webapp_fe_name=webapp-fe
+subnet_webapp_fe_prefix=192.168.6.0/24
+az network vnet subnet create -g $rg --vnet-name $vnet_name -n $subnet_webapp_fe_name --address-prefix $subnet_webapp_fe_prefix
+webapp_endpoint_name=mywebep
+svcplan_id=$(az appservice plan show -n $svcplan_name -g $rg -o tsv --query id)
+webapp_id=$(az webapp show -n $app_name_api -g $rg -o tsv --query id)
+az network vnet subnet update -n $subnet_webapp_fe_name -g $rg --vnet-name $vnet_name --disable-private-endpoint-network-policies true
+# Private link endpoinst only work for premium SKU
+az appservice plan update -n $svcplan_name -g $rg --sku P1V2
+group_id=sites
+# az network private-link-resource list -n $app_name_api -g $rg --type Microsoft.Web -o table  # DOES NOT WORK
+az network private-endpoint create -n $webapp_endpoint_name -g $rg --vnet-name $vnet_name --subnet $subnet_webapp_fe_name --private-connection-resource-id $webapp_id --group-id $group_id --connection-name webappConnection
+webapp_nic_id=$(az network private-endpoint show -n $webapp_endpoint_name -g $rg --query 'networkInterfaces[0].id' -o tsv)
+webapp_endpoint_ip=$(az network nic show --ids $webapp_nic_id --query 'ipConfigurations[0].privateIpAddress' -o tsv)
+```
+
+From our Virtual Machine we should now be able to reach the Web App on its private IP:
+
+```shell
+# Reach the web app's private IP
+ssh $vm_pip "curl -s http://${webapp_endpoint_ip}:8080/api/healthcheck"
+```
+
+Next we can configure vnet integration for the web frontend app in the subnet `$subnet_webapp_be_name`:
+
+```shell
+# Configure vnet integration for web frontend
+az webapp vnet-integration add -n $app_name_web -g $rg --vnet $vnet_name --subnet $subnet_webapp_be_name
+az webapp vnet-integration list -n $app_name_web -g $rg -o table
+```
+
+And lastly, we can modify the environment variable for the web frontend to reach to the API over its new private IP
+
+```shell
+# Modify environment variable in web frontend, so that it connects to the API over the private IP
+az webapp config appsettings set -n $app_name_web -g $rg --settings "API_URL=http://${webapp_endpoint_ip}"
+az webapp restart -n $app_name_web -g $rg
+echo "You can point your browser to http://${app_url_web} to verify the front end"
+```
+
+### Lab 5.3. Azure Key Vault, Azure Application Gateway and certificates - WORK IN PROGRESS<a name="lab53"></a>
+
+Feel free to jump to the next lab [Lab 6: Azure Windows Web App](#lab6)
+
+An Azure Application Gateway with WAF in front of an Azure Web App is an effective way of increasing overall security for your web applicaiton. The Azure Application Gateway will require a digital certificate that can be imported from the Azure Key Vault.
 
 ```shell
 # Create key vault and import certificate
@@ -943,135 +1109,6 @@ az keyvault update -n $keyvault_name -g $rg --enable-soft-delete
 cert_id=$(az keyvault certificate show --vault-name $keyvault_name -n $cert_name --query id -o tsv)
 #cert_id="https://${keyvault_name}.vault.azure.net/certificates/${cert_name}"
 az network application-gateway ssl-cert create --gateway-name $appgw_name -g $rg -n $cert_name --key-vault-secret-id $cert_id  # NOT WORKING!!!!
-```
-
-### Lab 5.1. Azure App Services with Vnet integration and private link<a name="lab5.1"></a>
-
-This lab is built on top of the previous one, you will need to have deployed the Web App and the SQL server before proceeding here (see the instructions in the previous section). Once you do that, we can integrate the Web App and the SQL Server in the Vnet. Let's start by creating the vnet with two subnets:
-
-```shell
-# Virtual Network
-vnet_name=myvnet
-vnet_prefix=192.168.0.0/16
-subnet_webapp_be_name=webapp-be
-subnet_webapp_be_prefix=192.168.5.0/24
-subnet_sql_name=sql
-subnet_sql_prefix=192.168.2.0/24
-az network vnet subnet create -g $rg --vnet-name $vnet_name -n $subnet_webapp_be_name --address-prefix $subnet_webapp_be_prefix
-az network vnet subnet create -g $rg --vnet-name $vnet_name -n $subnet_sql_name --address-prefix $subnet_sql_prefix
-```
-
-We can start with the private endpoint for the SQL database, since we have already seen in previous labs how to do that:
-
-```shell
-# SQL private endpoint
-sql_endpoint_name=sqlep
-sql_server_id=$(az sql server show -n $sql_server_name -g $rg -o tsv --query id)
-az network vnet subnet update -n $subnet_sql_name -g $rg --vnet-name $vnet_name --disable-private-endpoint-network-policies true
-az network private-endpoint create -n $sql_endpoint_name -g $rg --vnet-name $vnet_name --subnet $subnet_sql_name --private-connection-resource-id $sql_server_id --group-ids sqlServer --connection-name sqlConnection
-sql_nic_id=$(az network private-endpoint show -n $sql_endpoint_name -g $rg --query 'networkInterfaces[0].id' -o tsv)
-sql_endpoint_ip=$(az network nic show --ids $sql_nic_id --query 'ipConfigurations[0].privateIpAddress' -o tsv)
-```
-
-Before moving on, let's make a note on the egress public IP that the Web App is using to reach out to the Internet:
-
-```shell
-old_webapp_source_ip=$(curl -s http://${app_url_api}/api/ip | jq -r .my_public_ip)
-echo "Before vnet integration, the egress IP address for the web app is ${old_webapp_source_ip}"
-```
-
-Now we can integrate the Web App with the vnet, and verify that the web app has a new outbound public IP:
-
-```shell
-# Vnet integration
-az webapp vnet-integration add -n $app_name_api -g $rg --vnet $vnet_name --subnet $subnet_webapp_be_name
-new_webapp_source_ip=$(curl -s http://${app_url_api}/api/ip | jq -r .my_public_ip)
-echo "After vnet integration, the egress IP address for the web app is ${new_webapp_source_ip}"
-```
-
-We need to configure our test VM as DNS server:
-
-```shell
-dnsserver_ip=$(az network public-ip show  -g $rg -n $vm_pip_name --query ipAddress -o tsv)
-dnsserver_nic_id=$(az vm show -n $vm_name -g $rg --query 'networkProfile.networkInterfaces[0].id' -o tsv)
-dnsserver_privateip=$(az network nic show --ids $dnsserver_nic_id --query 'ipConfigurations[0].privateIpAddress' -o tsv)
-echo "DNS server deployed to $dnsserver_privateip, $dnsserver_ip"
-echo "Verifying name resolution for ${sql_server_fqdn}:"
-ssh $dnsserver_ip "nslookup ${sql_server_fqdn}"
-echo "IP configuration of the VM:"
-ssh $dnsserver_ip "ip a"
-echo "Installing DNS:"
-ssh $dnsserver_ip "sudo apt -y install apache2 dnsmasq"
-```
-
-If you didnt already have a private DNS zone from previous labs, you can create it like this:
-
-```shell
-# Create Azure DNS private zone and records: database.windows.net
-dns_zone_name=privatelink.database.windows.net
-az network private-dns zone create -n $dns_zone_name -g $rg 
-az network private-dns link vnet create -g $rg -z $dns_zone_name -n myDnsLink --virtual-network $vnet_name --registration-enabled false
-# Create record (private dns zone integration not working in the CLI)
-az network private-dns record-set a create -n $sql_server_name -z $dns_zone_name -g $rg
-az network private-dns record-set a add-record --record-set-name $sql_server_name -z $dns_zone_name -g $rg -a $sql_endpoint_ip
-# Verification: list recordsets in the zone
-az network private-dns record-set list -z $dns_zone_name -g $rg -o table
-az network private-dns record-set a show -n $sql_server_name -z $dns_zone_name -g $rg --query aRecords -o table
-```
-
-And we need to configure our app to use the DNS server we just installed:
-
-```shell
-az webapp config appsettings set -n $app_name_api -g $rg --settings "WEBSITE_DNS_SERVER=${dnsserver_privateip}"
-az webapp restart -n $app_name_api -g $rg
-```
-
-We can test now the resolution of the SQL Server FQDN, and access to the database over the internal IP address:
-
-```shell
-curl -s "http://${app_url_api}/api/dns?fqdn=${sql_server_fqdn}"
-curl -s "http://${app_url_api}/api/sqlversion"
-```
-
-### Lab 5.2. Azure App Services with Vnet integration and private link: frontend - NOT AVAILABLE YET<a name="lab5.2"></a>
-
-We can integrate the frontend of the webapp in our vnet as well, so that it is accessible only from within the vnet or from on-premises. In order to test this, we will need a VM inside the virtual network:
-
-```shell
-# Create VM for testing purposes
-subnet_vm_name=vm
-subnet_vm_prefix=192.168.10.0/24
-vm_name=testvm
-aks_node_size=Standard_B2ms
-vm_size=Standard_B2ms
-vm_pip_name=${vm_name}-pip
-az network vnet subnet create -g $rg --vnet-name $vnet_name -n $subnet_vm_name --address-prefix $subnet_vm_prefix
-az vm create -n $vm_name -g $rg --vnet-name $vnet_name --subnet $subnet_vm_name --public-ip-address $vm_pip_name --generate-ssh-keys --image ubuntuLTS --priority Low --size $vm_size --no-wait
-vm_pip=$(az network public-ip show  -g $rg -n $vm_pip_name --query ipAddress -o tsv)
-```
-
-Now we can create a private endpoint for our web app:
-
-```shell
-# Webapp private endpoint
-subnet_webapp_fe_name=webapp-fe
-subnet_webapp_fe_prefix=192.168.6.0/24
-az network vnet subnet create -g $rg --vnet-name $vnet_name -n $subnet_webapp_fe_name --address-prefix $subnet_webapp_fe_prefix
-webapp_endpoint_name=mywebep
-svcplan_id=$(az appservice plan show -n $svcplan_name -g $rg -o tsv --query id)
-webapp_id=$(az webapp show -n $app_name_api -g $rg -o tsv --query id)
-az network vnet subnet update -n $subnet_webapp_fe_name -g $rg --vnet-name $vnet_name --disable-private-endpoint-network-policies true
-# Which group-id? "site"?
-az network private-endpoint create -n $webapp_endpoint_name -g $rg --vnet-name $vnet_name --subnet $subnet_webapp_fe_name --private-connection-resource-id $webapp_id --group-ids site --connection-name webappConnection
-webapp_nic_id=$(az network private-endpoint show -n $webapp_endpoint_name -g $rg --query 'networkInterfaces[0].id' -o tsv)
-webapp_endpoint_ip=$(az network nic show --ids $webapp_nic_id --query 'ipConfigurations[0].privateIpAddress' -o tsv)
-```
-
-From our Virtual Machine we should now be able to reach the Web App on its private IP:
-
-```shell
-# Reach the web app's private IP
-ssh $vm_pip "curl -s http://${webapp_endpoint_ip}:8080/api/healthcheck"
 ```
 
 ## Lab 6. Azure Windows Web App Services with Vnet integration and private link:<a name="lab6"></a>
@@ -1274,7 +1311,7 @@ az network vnet subnet create -g $rg --vnet-name $vnet_name -n $subnet_vm_name -
 We will now create an Azure VM based on Ubuntu 18.04, and install the API code with a Custom Script Extension:
 
 ```shell
-vm_name=vmapi
+vm_name=apivm
 vm_nsg_name=${vm_name}-nsg
 vm_pip_name=${vm_name}-pip
 vm_disk_name=${vm_name}-disk0
@@ -1301,8 +1338,8 @@ az vm extension set -n customScript --vm-name $vm_name -g $rg --publisher Micros
 # Set environment variables
 # command="export SQL_SERVER_USERNAME=${sql_username} && export SQL_SERVER_PASSWORD=${sql_password}"
 # az vm run-command invoke -n $vm_name -g $rg --command-id RunShellScript --scripts "${command}"
-az vm run-command invoke -n $vm_name -g $rg --command-id RunShellScript --scripts 'export SQL_SERVER_USERNAME=$1 && export SQL_SERVER_PASSWORD=$2' \
-   --parameters $sql_username $sql_password
+# az vm run-command invoke -n $vm_name -g $rg --command-id RunShellScript --scripts 'export SQL_SERVER_USERNAME=$1 && export SQL_SERVER_PASSWORD=$2' \
+#    --parameters $sql_username $sql_password
 # Get public IP
 vm_pip_ip=$(az network public-ip show -n $vm_pip_name -g $rg --query ipAddress -o tsv)
 echo "You can SSH to $vm_pip_ip"
@@ -1312,7 +1349,7 @@ curl -s ${vm_pip_ip}:8080/api/healthcheck
 
 You can explore the different endpoints of the API:
 
-```
+```shell
 curl -s ${vm_pip_ip}:8080/api/ip
 curl -s ${vm_pip_ip}:8080/api/printenv
 ```
@@ -1324,7 +1361,7 @@ We can now create a private link endpoint for our SQL database:
 sql_endpoint_name=sqlep
 sql_server_id=$(az sql server show -n $sql_server_name -g $rg -o tsv --query id)
 az network vnet subnet update -n $subnet_sql_name -g $rg --vnet-name $vnet_name --disable-private-endpoint-network-policies true
-az network private-endpoint create -n $sql_endpoint_name -g $rg --vnet-name $vnet_name --subnet $subnet_sql_name --private-connection-resource-id $sql_server_id --group-ids sqlServer --connection-name sqlConnection
+az network private-endpoint create -n $sql_endpoint_name -g $rg --vnet-name $vnet_name --subnet $subnet_sql_name --private-connection-resource-id $sql_server_id --group-id sqlServer --connection-name sqlConnection
 sql_nic_id=$(az network private-endpoint show -n $sql_endpoint_name -g $rg --query 'networkInterfaces[0].id' -o tsv)
 sql_endpoint_ip=$(az network nic show --ids $sql_nic_id --query 'ipConfigurations[0].privateIpAddress' -o tsv)
 echo "Private IP address for SQL server ${sql_server_name}: ${sql_endpoint_ip}"
@@ -1350,6 +1387,13 @@ We can use the DNS endpoint of our VM to verify dns resolution:
 curl -s "http://${vm_pip_ip}:8080/api/dns?fqdn=${sql_server_fqdn}"
 ```
 
+And we can try to get reach the SQL Server over its private IP address:
+
+```shell
+# Test SQL query
+curl "http://${vm_pip_ip}:8080/api/sqlsrcip?SQL_SERVER_FQDN=${sql_server_fqdn}&SQL_SERVER_USERNAME=${sql_username}&SQL_SERVER_PASSWORD=${sql_password}"
+```
+
 We can see an interesting fact regarding private link endpoints: /32 routes are created. We can inspect the effective route table to verify that:
 
 ```shell
@@ -1358,11 +1402,110 @@ vm_nic_name=${vm_name}VMNic
 az network nic show-effective-route-table -n $vm_nic_name -g $rg -o table
 ```
 
-And we can try to get reach the SQL Server over its private IP address:
+### Azure Firewall between VM and private link endpoint
+
+To Do
 
 ```shell
-curl "http://${vm_pip_ip}:8080/api/sqlsrcip?SQL_SERVER_FQDN=${sql_server_fqdn}&SQL_SERVER_USERNAME=blah&SQL_SERVER_PASSWORD=fasel"
+# Create Azure Firewall
+azfw_name=myazfw
+azfw_pip_name=myazfw-pip
+subnet_azfw_name=AzureFirewallSubnet
+subnet_azfw_prefix=192.168.15.0/24
+logws_name=log$RANDOM
+az network vnet subnet create -g $rg --vnet-name $vnet_name -n $subnet_azfw_name --address-prefix $subnet_azfw_prefix
+az network public-ip create -g $rg -n $azfw_pip_name --sku standard --allocation-method static -l $location
+azfw_ip=$(az network public-ip show -g $rg -n $azfw_pip_name --query ipAddress -o tsv)
+az network firewall create -n $azfw_name -g $rg -l $location
+azfw_id=$(az network firewall show -n $azfw_name -g $rg -o tsv --query id)
+az monitor log-analytics workspace create -n $logws_name -g $rg
+logws_id=$(az monitor log-analytics workspace show -n $logws_name -g $rg --query id -o tsv)
+logws_customerid=$(az monitor log-analytics workspace show -n $logws_name -g $rg --query customerId -o tsv)
+az monitor diagnostic-settings create -n mydiag --resource $azfw_id --workspace $logws_id \
+    --metrics '[{"category": "AllMetrics", "enabled": true, "retentionPolicy": {"days": 0, "enabled": false }, "timeGrain": null}]' \
+    --logs '[{"category": "AzureFirewallApplicationRule", "enabled": true, "retentionPolicy": {"days": 0, "enabled": false}}, 
+            {"category": "AzureFirewallNetworkRule", "enabled": true, "retentionPolicy": {"days": 0, "enabled": false}}]'
+az network firewall ip-config create -f $azfw_name -n azfw-ipconfig -g $rg --public-ip-address $azfw_pip_name --vnet-name $vnet_name
+az network firewall update -n $azfw_name -g $rg
+azfw_private_ip=$(az network firewall show -n $azfw_name -g $rg -o tsv --query 'ipConfigurations[0].privateIpAddress')
+# az network firewall application-rule create -f $azfw_name -g $rg -c AllowAll --protocols Http=8080 Https=443 --target-fqdns "*" --source-addresses $vnet_prefix -n Allow-all --priority 200 --action Allow
+az network firewall network-rule create -f $azfw_name -g $rg -c VnetTraffic --protocols Any --destination-addresses $vnet_prefix --destination-ports '*' --source-addresses $vnet_prefix \
+  -n Allow-Vnet-Traffic --priority 210 --action Allow
 ```
+
+Now we can create a route-table in the VM's subnet to send traffic to the SQL endpoint to the firewall:
+
+```shell
+rt_name=vmrt
+az network route-table create -n $rt_name -g $rg -l $location
+rt_id=$(az network route-table show -n $rt_name -g $rg --query id -o tsv)
+az network route-table route create -n sqlendpoint --route-table-name $rt_name -g $rg --next-hop-type VirtualAppliance --address-prefix "${sql_endpoint_ip}/32" --next-hop-ip-address $azfw_private_ip
+az network vnet subnet update -g $rg --vnet-name $vnet_name -n $subnet_vm_name --route-table $rt_id
+```
+
+The effective routes should look different now, and the SQL server private endpoint should be now reachable through the Azure Firewall:
+
+```shell
+# Check effective routes generated by private link
+vm_nic_name=${vm_name}VMNic
+az network nic show-effective-route-table -n $vm_nic_name -g $rg -o table
+```
+
+And consequently, we should put the corresponding route-table in the private link subnet. Note that this is not going to work, as documented [here](https://docs.microsoft.com/azure/private-link/private-endpoint-overview#limitations):
+
+```shell
+rt_name=plinkrt
+az network route-table create -n $rt_name -g $rg -l $location
+rt_id=$(az network route-table show -n $rt_name -g $rg --query id -o tsv)
+az network route-table route create -n vmsubnet --route-table-name $rt_name -g $rg --next-hop-type VirtualAppliance --address-prefix "${subnet_vm_prefix}" --next-hop-ip-address $azfw_private_ip
+az network vnet subnet update -g $rg --vnet-name $vnet_name -n $subnet_sql_name --route-table $rt_id
+```
+
+Let us generate some traffic. Note that the firewall should drop the traffic, since there is asymmetric routing at this point:
+
+```shell
+# Test SQL query
+curl "http://${vm_pip_ip}:8080/api/sqlsrcip?SQL_SERVER_FQDN=${sql_server_fqdn}&SQL_SERVER_USERNAME=${sql_username}&SQL_SERVER_PASSWORD=${sql_password}"
+```
+
+We can have a look at the firewall logs with this query to verify that the traffic was indeed going through the Azure Firewall and was dropped:
+
+```shell
+# Show Azure Firewall logs
+query_nw_rule='AzureDiagnostics
+| where Category == "AzureFirewallNetworkRule"
+| parse msg_s with Protocol " request from " SourceIP ":" SourcePortInt:int " to " TargetIP ":" TargetPortInt:int *
+| parse msg_s with * ". Action: " Action1a
+| parse msg_s with * " was " Action1b " to " NatDestination
+| parse msg_s with Protocol2 " request from " SourceIP2 " to " TargetIP2 ". Action: " Action2
+| extend SourcePort = tostring(SourcePortInt),TargetPort = tostring(TargetPortInt)
+| extend Action = case(Action1a == "", case(Action1b == "",Action2,Action1b), Action1a),Protocol = case(Protocol == "", Protocol2, Protocol),SourceIP = case(SourceIP == "", SourceIP2, SourceIP),TargetIP = case(TargetIP == "", TargetIP2, TargetIP),SourcePort = case(SourcePort == "", "N/A", SourcePort),TargetPort = case(TargetPort == "", "N/A", TargetPort),NatDestination = case(NatDestination == "", "N/A", NatDestination)
+| project TimeGenerated, msg_s, Protocol, SourceIP,SourcePort,TargetIP,TargetPort,Action, NatDestination'
+# This might take a while to work
+az monitor log-analytics query -w $logws_customerid --analytics-query $query_nw_rule -o tsv
+```
+
+As workaround, we could tune our AzFW to always do SNAT:
+
+```shell
+# Customized SNAT behavior of AzFW
+az network firewall update -n $azfw_name -g $rg --private-ranges $subnet_vm_prefix
+```
+
+We can test again access to the database. Note that the firewall will now SNAT the traffic, and hence the SQL server will see as source an IP address in the Azure Firewall's subnet:
+
+```shell
+# Test SQL query
+curl "http://${vm_pip_ip}:8080/api/sqlsrcip?SQL_SERVER_FQDN=${sql_server_fqdn}&SQL_SERVER_USERNAME=${sql_username}&SQL_SERVER_PASSWORD=${sql_password}"
+```
+
+If you want to reverse the Azure Firewall SNAT behavior to its default:
+
+```shell
+# Customized SNAT behavior of AzFW
+az network firewall update -n $azfw_name -g $rg --private-ranges IANAPrivateRanges
+```
+
 
 ## Cleanup
 

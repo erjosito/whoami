@@ -86,8 +86,7 @@ def send_sql_query(sql_server_fqdn = None, sql_server_db = None, sql_server_user
     # Check we have the right variables (note that SQL_SERVER_DB is optional)
     if sql_server_username == None or sql_server_password == None or sql_server_fqdn == None:
         print('DEBUG - Required environment variables not present')
-        return 'Required environment variables not present'
-    # Build connection string
+        return 'Required environment variables not present: ' + str(sql_server_fqdn) + ' :' + str(sql_server_username) + '/' + str(sql_server_password)    # Build connection string
     cx_string=''
     drivers = pyodbc.drivers()
     # print('Available ODBC drivers:', drivers)   # DEBUG
@@ -114,7 +113,7 @@ def send_sql_query(sql_server_fqdn = None, sql_server_db = None, sql_server_user
         if is_valid_ipv4_address(sql_server_fqdn):
             error_msg = 'SQL Server FQDN should not be an IP address when targeting Azure SQL Databse, maybe this is a problem?'
         else:
-            error_msg = 'Connection to server ' + sql_server_fqdn + ' failed, you might have to update the firewall rules?'
+            error_msg = 'Connection to server ' + sql_server_fqdn + ' failed, you might have to update the firewall rules or check your credentials?'
         app.logger.info(error_msg)
         app.logger.error(e)
         return error_msg
@@ -167,11 +166,10 @@ def get_default_gateway():
                 fields = line.strip().split()
                 if fields[1] != '00000000' or not int(fields[3], 16) & 2:
                     continue
-                #return socket.inet_ntoa(struct.pack("<L", int(fields[2], 16)))
-                return socket.inet_ntoa(struct.pack("=", int(fields[2], 16)))
-    except:
-        return ""
-
+                return socket.inet_ntoa(struct.pack("<L", int(fields[2], 16)))
+    except Exception as e:
+        return str(e)
+ 
 # Flask route for healthchecks
 @app.route("/api/healthcheck", methods=['GET'])
 def healthcheck():
@@ -189,7 +187,7 @@ def healthcheck():
 def sql():
     if request.method == 'GET':
         try:
-            sql_server_fqdn = request.args.get('SQL_SERVER_FQDN')
+            sql_server_fqdn = request.args.get('SQL_SERVER_FQDN')   #if key doesn't exist, returns None
             sql_server_db = request.args.get('SQL_SERVER_DB')
             sql_output = send_sql_query(sql_server_fqdn=sql_server_fqdn, sql_server_db=sql_server_db)
             msg = {
@@ -207,7 +205,10 @@ def sqlversion():
         try:
             sql_server_fqdn = request.args.get('SQL_SERVER_FQDN')
             sql_server_db = request.args.get('SQL_SERVER_DB')
-            sql_output = send_sql_query(sql_server_fqdn=sql_server_fqdn, sql_server_db=sql_server_db, sql_query=sql_query)
+            sql_server_username = request.args.get('SQL_SERVER_USERNAME')
+            sql_server_password = request.args.get('SQL_SERVER_PASSWORD')
+            app.logger.info('Values retrieved from the query: {0}, db {1}: credentials {2}/{3}'.format(str(sql_server_fqdn), str(sql_server_db), str(sql_server_username), str(sql_server_password)))
+            sql_output = send_sql_query(sql_server_fqdn=sql_server_fqdn, sql_server_db=sql_server_db, sql_server_username=sql_server_username, sql_server_password=sql_server_password, sql_query=sql_query)
             msg = {
             'sql_output': sql_output
             }          
@@ -219,12 +220,30 @@ def sqlversion():
 def sqlsrcip():
     if request.method == 'GET':
         sql_query = 'SELECT CONNECTIONPROPERTY(\'client_net_address\')'
-        try:           
+        try:
+        #    args = request.args
+        #     if "SQL_SERVER_FQDN" in args:
+        #         sql_server_fqdn = args["SQL_SERVER_FQDN"]
+        #     else:
+        #         sql_server_fqdn = None
+        #     if "SQL_SERVER_DB" in args:
+        #         sql_server_db = args["SQL_SERVER_DB"]
+        #     else:
+        #         sql_server_db = None
+        #     if "SQL_SERVER_USERNAME" in args:
+        #         sql_server_username = args["SQL_SERVER_USERNAME"]
+        #     else:
+        #         sql_server_username = None
+        #     if "SQL_SERVER_PASSWORD" in args:
+        #         sql_server_password = args["SQL_SERVER_PASSWORD"]
+        #     else:
+        #         sql_server_password = None            
             sql_server_fqdn = request.args.get('SQL_SERVER_FQDN')
             sql_server_db = request.args.get('SQL_SERVER_DB')
             sql_server_username = request.args.get('SQL_SERVER_USERNAME')
             sql_server_password = request.args.get('SQL_SERVER_PASSWORD')
-            sql_output = send_sql_query(sql_server_fqdn=sql_server_fqdn, sql_server_db=sql_server_db, sql_query=sql_query, sql_server_username=sql_server_username, sql_server_password=sql_server_password)
+            app.logger.info('Values retrieved from the query: {0}, db {1}: credentials {2}/{3}'.format(str(sql_server_fqdn), str(sql_server_db), str(sql_server_username), str(sql_server_password)))
+            sql_output = send_sql_query(sql_server_fqdn=sql_server_fqdn, sql_server_db=sql_server_db, sql_server_username=sql_server_username, sql_server_password=sql_server_password, sql_query=sql_query)
             msg = {
             'sql_output': sql_output
             }          

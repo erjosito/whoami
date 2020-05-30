@@ -17,4 +17,4 @@ pip3 install -r requirements.txt
 # Run app
 # python3 sql_api.py &
 # setsid python3 sql_api.py >/dev/null 2>&1
-nohup python3 sql_api.py >/dev/null 2>&1 &
+nohup python3 sql_api.py &
