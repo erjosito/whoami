@@ -57,9 +57,9 @@ These documents show challenges in an open-ended fashion. They do not contain de
 
 These documents show guided, step-by-step instructions on how to set up certain environments. They are useful if you want to quickly standup an environment without having to do any research:
 
-* [Local Docker][lab-guides/docker.md]
-* [Azure Container Instances][lab-guides/aci.md]
-* [Azure Kubernetes Service][lab-guides/aks.md]
-* [Linux Web App][lab-guides/linux_webapp.md]
-* [Windows Web App][lab-guides/windows_webapp.md]
-* [Virtual Machines][lab-guides/vms.md]
+* [Local Docker](lab-guides/docker.md)
+* [Azure Container Instances](lab-guides/aci.md)
+* [Azure Kubernetes Service](lab-guides/aks.md)
+* [Linux Web App](lab-guides/linux_webapp.md)
+* [Windows Web App](lab-guides/windows_webapp.md)
+* [Virtual Machines](lab-guides/vms.md)
