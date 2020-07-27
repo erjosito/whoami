@@ -17,4 +17,6 @@ You need to fulfill these requirements to complete this challenge:
 These docs might help you achieving these objectives:
 
 * [Azure Private Link](https://docs.microsoft.com/azure/private-link/private-link-overview)
+* [Restrict AKS egress traffic](https://docs.microsoft.com/azure/aks/limit-egress-traffic)
+* [Azure SQL Database](https://docs.microsoft.com/azure/azure-sql/azure-sql-iaas-vs-paas-what-is-overview)
 * [AKS Overview](https://docs.microsoft.com/azure/aks/)

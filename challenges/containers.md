@@ -14,5 +14,6 @@ You need to fulfill these requirements to complete this challenge:
 
 These docs might help you achieving these objectives:
 
-* [ACR](https://docs.microsoft.com/azure/container-registry/container-registry-intro)
-* [ACI](https://docs.microsoft.com/azure/container-instances/)
+* [Run SQL Server container images with Docker](https://docs.microsoft.com/sql/linux/quickstart-install-connect-docker?view=sql-server-ver15&pivots=cs1-bash)
+* [Azure Container Registry](https://docs.microsoft.com/azure/container-registry/container-registry-intro)
+* [Azure Container Instances](https://docs.microsoft.com/azure/container-instances/)

@@ -55,7 +55,8 @@ These documents show challenges in an open-ended fashion. They do not contain de
 * [3. AKS monitoring](challenges/aks_monitoring.md)
 * [4. AKS secrets](challenges/aks_secrets.md)
 * [5. Kubernetes security](challenges/aks_security.md)
-* [6. Service Mesh](challenges/aks_mesh.md)
+* [6. Kubernetes Storage](challenges/aks_storage.md)
+* [7. Service Mesh](challenges/aks_mesh.md)
 
 ## Lab guides
 
