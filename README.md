@@ -9,7 +9,7 @@ Note that the images are pretty large, since they are based on standard ubuntu a
 
 ## SQL API
 
-sql-api (available in docker hub in [here](https://hub.docker.com/repository/docker/erjosito/sqlapi)), it offers the following endpoints:
+sql-api (available in dockerhub [here](https://hub.docker.com/repository/docker/erjosito/sqlapi)), it offers the following endpoints:
 
 * `/api/healthcheck`: returns a basic JSON code
 * `/api/sqlversion`: returns the results of a SQL query (`SELECT @@VERSION`) against a SQL database. You can override the value of the `SQL_SERVER_FQDN` via a query parameter 
@@ -28,6 +28,8 @@ Environment variables can be also injected via files in the `/secrets` directory
 * `SQL_SERVER_PASSWORD`: password for the SQL server
 * `PORT` (optional): TCP port where the web server will be listening (8080 per default)
 
+Source files [here](api).
+
 ## Web
 
 Simple PHP web page that can access the previous API.
@@ -38,13 +40,15 @@ Environment variables:
 
 Following you have a list of labs. The commands are thought to be issued in a **Linux console**, but if you are running on a Powershell console they should work with some minor modifications (like adding a `$` in front of the variable names).
 
+Source files [here](web).
+
 # Challenges and lab guides
 
 The labs described below include how to deploy these containers in different form factors:
 
 ## Challenges
 
-These documents show challenges in an open-ended fashion. They do not contain detailed-instructions or solutions, but just objectives that need to be fulfilled. You will need to do research to find out a valid solution. There is not a single valid solution, often multiple technologies can fulfill the objectives.
+These documents show challenges in an open-ended fashion. They do not contain detailed-instructions or solutions, but just objectives that need to be fulfilled. You will need to do research to find out a valid solution. There might not be a single, unique valid solution, multiple technologies could fulfill the objectives.
 
 * [1. Containers, ACR and ACI](challenges/containers.md)
 * [2. AKS network integration](challenges/aks_private.md)
