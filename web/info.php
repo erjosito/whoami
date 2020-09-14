@@ -23,11 +23,25 @@
 		<div class="nav-bar">
 			<div class="container">
 				<ul class="nav">
-                    <li><a href="index.php">Home</a></li>
-                    <li><a href="info.php">Info</a></li>
+                <li><a href="info.php">Info</a></li>
 					<li><a href="healthcheck.html">HTML healthcheck</a></li>
 					<li><a href="healthcheck.php">PHPinfo</a></li>
-					<li><a href="https://github.com/erjosito">My Github repos</a></li>
+					<li><a href="https://github.com/erjosito/whoami/blob/master/api/README.md">SQL API docs</a></li>
+					<li><a href="https://github.com/erjosito/whoami/blob/master/web/README.md">SQL Web docs</a></li>
+                    <li>             </li>
+                    <li>             </li>
+                    <li>             </li>
+                    <li style="color:LightGray;"><?php
+                        $jwt = $_SERVER['HTTP_AUTHORIZATION'];
+                        if (empty($jwt)) {
+                            print ("Not authenticated");
+                        } else {
+                            list($header, $payload, $signature) = explode(".", $jwt);
+                            $plainPayload = base64_decode($payload);
+                            $jsonPayload = json_decode($plainPayload, true);
+                            print("Hello, ".$jsonPayload["given_name"]); 
+                        }
+                    ?></li>
 				</ul>
 			</div>
 		</div>

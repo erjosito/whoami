@@ -27,7 +27,22 @@
                     <li><a href="info.php">Info</a></li>
 					<li><a href="healthcheck.html">HTML healthcheck</a></li>
 					<li><a href="healthcheck.php">PHPinfo</a></li>
-					<li><a href="https://github.com/erjosito">My Github repos</a></li>
+					<li><a href="https://github.com/erjosito/whoami/blob/master/api/README.md">SQL API docs</a></li>
+					<li><a href="https://github.com/erjosito/whoami/blob/master/web/README.md">SQL Web docs</a></li>
+                    <li>             </li>
+                    <li>             </li>
+                    <li>             </li>
+                    <li style="color:LightGray;"><?php
+                        $jwt = $_SERVER['HTTP_AUTHORIZATION'];
+                        if (empty($jwt)) {
+                            print ("Not authenticated");
+                        } else {
+                            list($header, $payload, $signature) = explode(".", $jwt);
+                            $plainPayload = base64_decode($payload);
+                            $jsonPayload = json_decode($plainPayload, true);
+                            print("Hello, ".$jsonPayload["given_name"]); 
+                        }
+                    ?></li>
 				</ul>
 			</div>
 		</div>
@@ -38,7 +53,7 @@
 					<h1><?php echo exec('hostname'); ?></h1>
 
                     <h3>Information retrieved from API <?php print(getenv("API_URL")); ?>:</h3>
-                    <p>These links will only work if the environment variable API_URL is set to the correct instance of an instance of the image erjosito/sqlapi:</p>
+                    <p>These links will only work if the environment variable API_URL is set to the correct instance of an instance of the <a href="https://github.com/erjosito/whoami/blob/master/web/README.md">SQL API</a>:</p>
                     <ul>
                     <?php
                         $cmd = "curl " . getenv("API_URL") . "/api/healthcheck";
@@ -54,6 +69,22 @@
                         $sql_output = $result["sql_output"];
                     ?>
                         <li>SQL Server version: <?php print($sql_output); ?></li>
+                    <?php
+                        $cmd = "curl " . getenv("API_URL") . "/api/ip";
+                        $result_json = shell_exec($cmd);
+                        $result = json_decode($result_json, true);
+                    ?>
+                        <li>Connectivity info for SQL API pod:
+                            <ul>
+                            <li>Private IP address: <?php print($result["my_private_ip"]); ?></li>
+                            <li>Public (egress) IP address: <?php print($result["my_public_ip"]); ?></li>
+                            <li>Default gateway: <?php print($result["my_default_gateway"]); ?></li>
+                            <li>HTTP request source IP address: <?php print($result["your_address"]); ?></li>
+                            <li>HTTP request X-Forwarded-For header: <?php print($result["x-forwarded-for"]); ?></li>
+                            <li>HTTP request Host header: <?php print($result["host"]); ?></li>
+                            <li>HTTP requested path: <?php print($result["path_accessed"]); ?></li>
+                            </ul>
+                        </li>
                     </ul>
                     <br>
                     <h3>Direct access to API</h3>
@@ -61,6 +92,7 @@
                     <ul>
                         <li><a href='/api/healthcheck'>API health status</a></li>
                         <li><a href='/api/sqlversion'>SQL Server version</a></li>
+                        <li><a href='/api/ip'>API connectivity information</a></li>
                     </ul>
                 </div>
             </div>
