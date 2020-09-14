@@ -72,6 +72,19 @@ def handle_sql_variant_as_string(value):
     # return value.decode('utf-16le')
     return value.decode('utf-8')
 
+# Calculates x digits of number pi
+def pi_digits(x):
+    """Generate x digits of Pi."""
+    k,a,b,a1,b1 = 2,4,1,12,4
+    while x > 0:
+        p,q,k = k * k, 2 * k + 1, k + 1
+        a,b,a1,b1 = a1, b1, p*a + q*a1, p*b + q*b1
+        d,d1 = a/b, a1/b1
+        while d == d1 and x > 0:
+            yield int(d)
+            x -= 1
+            a,a1 = 10*(a % b), 10*(a1 % b1)
+            d,d1 = a/b, a1/b1
 
 def send_sql_query(sql_server_fqdn = None, sql_server_db = None, sql_server_username = None, sql_server_password = None, sql_query = 'SELECT @@VERSION'):
     # Only set the sql_server_fqdn and db variable if not supplied as argument
@@ -83,6 +96,8 @@ def send_sql_query(sql_server_fqdn = None, sql_server_db = None, sql_server_user
         sql_server_username = get_variable_value('SQL_SERVER_USERNAME')
     if sql_server_password == None:
         sql_server_password = get_variable_value('SQL_SERVER_PASSWORD')
+    if sql_query == None:
+        sql_query = 'SELECT @@VERSION'
     # Check we have the right variables (note that SQL_SERVER_DB is optional)
     if sql_server_username == None or sql_server_password == None or sql_server_fqdn == None:
         print('DEBUG - Required environment variables not present')
@@ -189,7 +204,8 @@ def sql():
         try:
             sql_server_fqdn = request.args.get('SQL_SERVER_FQDN')   #if key doesn't exist, returns None
             sql_server_db = request.args.get('SQL_SERVER_DB')
-            sql_output = send_sql_query(sql_server_fqdn=sql_server_fqdn, sql_server_db=sql_server_db)
+            sql_query = request.args.get('query')
+            sql_output = send_sql_query(sql_server_fqdn=sql_server_fqdn, sql_server_db=sql_server_db, sql_query=sql_query)
             msg = {
             'sql_output': sql_output
             }          
@@ -251,6 +267,21 @@ def sqlsrcip():
         except Exception as e:
           return jsonify(str(e))
 
+# Flask route to return the number PI
+@app.route("/api/pi", methods=['GET'])
+def pi():
+    try:
+        DIGITS = int(request.args.get('digits'))
+        if DIGITS == None:
+            DIGITS = 10000
+        digits = [str(n) for n in list(pi_digits(DIGITS))]
+        pi_str = "%s.%s\n" % (digits.pop(0), "".join(digits))
+        msg = {
+                'pi': pi_str
+        }          
+        return jsonify(msg)
+    except Exception as e:
+        return jsonify(str(e))
 
 # Flask route to provide the container's IP address
 @app.route("/api/dns", methods=['GET'])
@@ -283,6 +314,13 @@ def ip():
                     forwarded_for = ""
             else:
                 forwarded_for = None
+            if request.headers.get("Host"):
+                try:
+                    host_header = str(request.headers.get("Host"))
+                except:
+                    host_header = ""
+            else:
+                forwarded_for = None
             sql_server_fqdn = get_variable_value('SQL_SERVER_FQDN')
             sql_server_ip = get_ip(sql_server_fqdn)
             app.logger.info('Getting our private IP address...')
@@ -303,6 +341,7 @@ def ip():
                 'my_default_gateway': def_gwy,
                 'your_address': rem_add,
                 'x-forwarded-for': forwarded_for,
+                'host': host_header,
                 'path_accessed': path,
                 'your_platform': str(request.user_agent.platform),
                 'your_browser': str(request.user_agent.browser),
@@ -311,7 +350,7 @@ def ip():
             }          
             return jsonify(msg)
         except Exception as e:
-            return jsonify(str(e))
+            return str(jsonify(str(e))) + str(msg)
 
 # Flask route to provide the container's environment variables
 @app.route("/api/printenv", methods=['GET'])
