@@ -35,4 +35,4 @@ These documents show guided, step-by-step instructions on how to set up certain 
 * [Azure Kubernetes Service](lab-guides/aks.md)
 * [Linux Web App](lab-guides/linux_webapp.md)
 * [Windows Web App](lab-guides/windows_webapp.md)
-* [Virtual Machines](lab-guides/vms.md)
+* [Virtual Machines](lab-guides/vm.md)
