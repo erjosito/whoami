@@ -5,12 +5,13 @@ import time
 import warnings
 import requests
 import dns.resolver
+import psycopg2
 
 from flask import Flask
 from flask import request
 from flask import jsonify
 
-# If not using SQL APIs, pyodbc and pymysql are not required and cannot be installed
+# If not using SQL APIs, pyodbc and pymysql are not required and could not be installed
 # If pyodbc is not correclty imported the Azure SQL DB calls will break
 # If pymysql is not correclty imported the Azure SQL DB for MySQL calls will break
 try:
@@ -86,7 +87,7 @@ def pi_digits(x):
             a,a1 = 10*(a % b), 10*(a1 % b1)
             d,d1 = a/b, a1/b1
 
-def send_sql_query(sql_server_fqdn = None, sql_server_db = None, sql_server_username = None, sql_server_password = None, sql_query = 'SELECT @@VERSION'):
+def send_sql_query(sql_server_fqdn = None, sql_server_db = None, sql_server_username = None, sql_server_password = None, sql_query = None, sql_engine=None, use_ssl=None):
     # Only set the sql_server_fqdn and db variable if not supplied as argument
     if sql_server_fqdn == None:
         sql_server_fqdn = get_variable_value('SQL_SERVER_FQDN')
@@ -96,54 +97,150 @@ def send_sql_query(sql_server_fqdn = None, sql_server_db = None, sql_server_user
         sql_server_username = get_variable_value('SQL_SERVER_USERNAME')
     if sql_server_password == None:
         sql_server_password = get_variable_value('SQL_SERVER_PASSWORD')
-    if sql_query == None:
-        sql_query = 'SELECT @@VERSION'
+    if use_ssl == None:
+        use_ssl = get_variable_value('USE_SSL')
+        if use_ssl == None:
+            use_ssl = 'yes'
+    if sql_engine == None:
+        sql_engine = get_variable_value('SQL_ENGINE')
+        if sql_engine == None:
+            sql_engine = 'sqlserver'
     # Check we have the right variables (note that SQL_SERVER_DB is optional)
     if sql_server_username == None or sql_server_password == None or sql_server_fqdn == None:
         print('DEBUG - Required environment variables not present')
         return 'Required environment variables not present: ' + str(sql_server_fqdn) + ' :' + str(sql_server_username) + '/' + str(sql_server_password)    # Build connection string
-    cx_string=''
-    drivers = pyodbc.drivers()
-    # print('Available ODBC drivers:', drivers)   # DEBUG
-    if len(drivers) == 0:
-        app.logger.error('Oh oh, it looks like you have no ODBC drivers installed :(')
-        return "No ODBC drivers installed"
+    if sql_engine == "sqlserver":
+        if sql_query == None:
+            sql_query = 'SELECT @@VERSION'
+        cx_string=''
+        drivers = pyodbc.drivers()
+        # print('Available ODBC drivers:', drivers)   # DEBUG
+        if len(drivers) == 0:
+            app.logger.error('Oh oh, it looks like you have no ODBC drivers installed :(')
+            return "No ODBC drivers installed"
+        else:
+            # Take first driver, for our basic stuff any should do
+            driver = drivers[0]
+            if sql_server_db == None:
+                app.logger.info("Building connection string with no Database")
+                cx_string = "Driver={{{0}}};Server=tcp:{1},1433;Uid={2};Pwd={3};Encrypt=yes;TrustServerCertificate=yes;Connection Timeut=30;".format(driver, sql_server_fqdn, sql_server_username, sql_server_password)
+            else:
+                app.logger.info("Building connection string with Database")
+                cx_string = "Driver={{{0}}};Server=tcp:{1},1433;Database={2};Uid={3};Pwd={4};Encrypt=yes;TrustServerCertificate=yes;Connection Timeut=30;".format(driver, sql_server_fqdn, sql_server_db, sql_server_username, sql_server_password)
+            app.logger.info('connection string: ' + cx_string)
+        # Connect to DB
+        app.logger.info('Connecting to database server ' + sql_server_fqdn + ' - ' + get_ip(sql_server_fqdn) + '...')
+        try:
+            cx = init_odbc(cx_string)
+            cx.add_output_converter(-150, handle_sql_variant_as_string)
+        except Exception as e:
+            if is_valid_ipv4_address(sql_server_fqdn):
+                error_msg = 'SQL Server FQDN should not be an IP address when targeting Azure SQL Databse, maybe this is a problem?'
+            else:
+                error_msg = 'Connection to server ' + sql_server_fqdn + ' failed, you might have to update the firewall rules or check your credentials?'
+            app.logger.info(error_msg)
+            app.logger.error(e)
+            return error_msg
+        # Send SQL query
+        app.logger.info('Sending SQL query ' + sql_query + '...')
+        try:
+            # sql_output = get_sqlversion(cx)
+            # sql_output = get_sqlsrcip(cx)
+            sql_output = get_sqlquery(cx, sql_query)
+            return str(sql_output)
+        except Exception as e:
+            # app.logger.error('Error sending query to the database')
+            app.logger.error(e)
+            return None
+    elif sql_engine == 'mysql':
+        if sql_query == None:
+            sql_query = "SELECT VERSION();"
+        # The user must be in the format user@server
+        sql_server_name = sql_server_fqdn.split('.')[0]
+        if sql_server_name:
+            sql_server_username = sql_server_username + '@' + sql_server_name
+        else:
+            error_msg = "MySql server name could not be retrieved out of FQDN"
+            app.logger.info(error_msg)
+            return error_msg
+        try:
+            # Different connection strings if using a database or not, if using SSL or not
+            if use_ssl == 'yes':
+                if sql_server_db == None:
+                    app.logger.info('Connecting with SSL to mysql server ' + str(sql_server_fqdn) + ', username ' + str(sql_server_username) + ', password ' + str(sql_server_password))
+                    db = pymysql.connect(host=sql_server_fqdn, user=sql_server_username, passwd=sql_server_password, ssl={'ssl':{'ca': 'BaltimoreCyberTrustRoot.crt.pem'}})
+                else:
+                    app.logger.info('Connecting with SSL to mysql server ' + str(sql_server_fqdn) + ', database ' + str(sql_server_db) + ', username ' + str(sql_server_username) + ', password ' + str(sql_server_password))
+                    db = pymysql.connect(sql_server_fqdn, sql_server_username, sql_server_password, sql_server_db, ssl={'ssl':{'ca': 'BaltimoreCyberTrustRoot.crt.pem'}})
+            else:
+                if sql_server_db == None:
+                    app.logger.info('Connecting without SSL to mysql server ' + str(sql_server_fqdn) + ', username ' + str(sql_server_username) + ', password ' + str(sql_server_password))
+                    db = pymysql.connect(host=sql_server_fqdn, user=sql_server_username, passwd=sql_server_password)
+                else:
+                    app.logger.info('Connecting without SSL to mysql server ' + str(sql_server_fqdn) + ', database ' + str(sql_server_db) + ', username ' + str(sql_server_username) + ', password ' + str(sql_server_password))
+                    db = pymysql.connect(sql_server_fqdn, sql_server_username, sql_server_password, sql_server_db)
+            # Send query and extract data
+            cursor = db.cursor()
+            cursor.execute(sql_query)
+            # Option 1: first row only
+            # data = cursor.fetchone()
+            # Option 2: all rows
+            rows = cursor.fetchall()
+            data = ''
+            app.logger.info('Query "' + sql_query + '" has returned ' + str(len(rows)) + ' rows')
+            app.logger.info('Variable type for first row: ' + str(type(rows[0])))
+            if len(rows) > 0:
+                for row in rows:
+                    if len(data) > 0:
+                        data += ', '
+                    data += str(''.join(row))
+            else:
+                return None
+            # Return value
+            db.close()
+            return str(data)
+        except Exception as e:
+            error_msg = "Error, something happened when sending a query to a MySQL server"
+            app.logger.info(error_msg)
+            app.logger.error(e)
+            return str(e)
+    elif sql_engine == "postgres":
+        if sql_query == None:
+            sql_query = "SELECT VERSION();"
+        # The user must be in the format user@server
+        sql_server_name = sql_server_fqdn.split('.')[0]
+        if sql_server_name:
+            sql_server_username = sql_server_username + '@' + sql_server_name
+        else:
+            error_msg = "MySql server name could not be retrieved out of FQDN"
+            app.logger.info(error_msg)
+            return error_msg
+        try:
+            # Different connection strings if using a database or not
+            if sql_server_db == None:
+                # conn_string = "host='" + str(sql_server_fqdn) + "' user='" + str(sql_server_username) + "' password='" + str(sql_server_password) + "'"
+                conn_string = "host='" + str(sql_server_fqdn) + "' user='" + str(sql_server_username) + "' password='" + str(sql_server_password)+ "' dbname='postgres'"
+                app.logger.info('Connecting to Postgres with connection string: ' + conn_string)
+            else:
+                conn_string = "host='" + str(sql_server_fqdn) + "' user='" + str(sql_server_username) + "' password='" + str(sql_server_password)+ "' dbname='" + str(sql_server_db) + "'"
+                app.logger.info('Connecting to Postgres with connection string: ' + conn_string)
+            # Send query and extract data
+            conn = psycopg2.connect(conn_string)
+
+            cursor = conn.cursor()
+            cursor.execute(sql_query)
+            data = cursor.fetchone()
+            conn.close()
+            return str(''.join(data))
+        except Exception as e:
+            error_msg = "Error, something happened when sending a query to a MySQL server"
+            app.logger.info(error_msg)
+            app.logger.error(e)
+            return str(e)
     else:
-        # Take first driver, for our basic stuff any should do
-        driver = drivers[0]
-        if sql_server_db == None:
-            app.logger.info("Building connection string with no Database")
-            cx_string = "Driver={{{0}}};Server=tcp:{1},1433;Uid={2};Pwd={3};Encrypt=yes;TrustServerCertificate=yes;Connection Timeut=30;".format(driver, sql_server_fqdn, sql_server_username, sql_server_password)
-        else:
-            app.logger.info("Building connection string with Database")
-            cx_string = "Driver={{{0}}};Server=tcp:{1},1433;Database={2};Uid={3};Pwd={4};Encrypt=yes;TrustServerCertificate=yes;Connection Timeut=30;".format(driver, sql_server_fqdn, sql_server_db, sql_server_username, sql_server_password)
-        app.logger.info('connection string: ' + cx_string)
-    # Connect to DB
-    app.logger.info('Connecting to database server ' + sql_server_fqdn + ' - ' + get_ip(sql_server_fqdn) + '...')
-    try:
-        cx = init_odbc(cx_string)
-        cx.add_output_converter(-150, handle_sql_variant_as_string)
-
-    except Exception as e:
-        if is_valid_ipv4_address(sql_server_fqdn):
-            error_msg = 'SQL Server FQDN should not be an IP address when targeting Azure SQL Databse, maybe this is a problem?'
-        else:
-            error_msg = 'Connection to server ' + sql_server_fqdn + ' failed, you might have to update the firewall rules or check your credentials?'
-        app.logger.info(error_msg)
-        app.logger.error(e)
+        error_msg = 'DB engine ' + sql_engine + ' not supported'
+        app.logger.error(error_msg)
         return error_msg
-
-    # Send SQL query
-    app.logger.info('Sending SQL query ' + sql_query + '...')
-    try:
-        # sql_output = get_sqlversion(cx)
-        # sql_output = get_sqlsrcip(cx)
-        sql_output = get_sqlquery(cx, sql_query)
-        return str(sql_output)
-    except Exception as e:
-        # app.logger.error('Error sending query to the database')
-        app.logger.error(e)
-        return None
 
 # Get IP for a DNS name
 def get_ip(d):
@@ -204,10 +301,14 @@ def sql():
         try:
             sql_server_fqdn = request.args.get('SQL_SERVER_FQDN')   #if key doesn't exist, returns None
             sql_server_db = request.args.get('SQL_SERVER_DB')
-            sql_query = request.args.get('query')
-            sql_output = send_sql_query(sql_server_fqdn=sql_server_fqdn, sql_server_db=sql_server_db, sql_query=sql_query)
+            sql_server_username = request.args.get('SQL_SERVER_USERNAME')
+            sql_server_password = request.args.get('SQL_SERVER_PASSWORD')
+            sql_engine = request.args.get('SQL_ENGINE')
+            use_ssl = request.args.get('USE_SSL')
+            sql_query = request.args.get('QUERY')
+            sql_output = send_sql_query(sql_server_fqdn=sql_server_fqdn, sql_server_db=sql_server_db, sql_server_username=sql_server_username, sql_server_password=sql_server_password, sql_query=sql_query, sql_engine=sql_engine, use_ssl=use_ssl)
             msg = {
-            'sql_output': sql_output
+                'sql_output': sql_output
             }          
             return jsonify(msg)
         except Exception as e:
@@ -223,8 +324,10 @@ def sqlversion():
             sql_server_db = request.args.get('SQL_SERVER_DB')
             sql_server_username = request.args.get('SQL_SERVER_USERNAME')
             sql_server_password = request.args.get('SQL_SERVER_PASSWORD')
+            sql_engine = request.args.get('SQL_ENGINE')
             app.logger.info('Values retrieved from the query: {0}, db {1}: credentials {2}/{3}'.format(str(sql_server_fqdn), str(sql_server_db), str(sql_server_username), str(sql_server_password)))
-            sql_output = send_sql_query(sql_server_fqdn=sql_server_fqdn, sql_server_db=sql_server_db, sql_server_username=sql_server_username, sql_server_password=sql_server_password, sql_query=sql_query)
+            # No need to give the query as parameter, "SELECT @@VERSION" is hte default for the function send_sql_query
+            sql_output = send_sql_query(sql_server_fqdn=sql_server_fqdn, sql_server_db=sql_server_db, sql_server_username=sql_server_username, sql_server_password=sql_server_password, sql_engine=sql_engine)
             msg = {
             'sql_output': sql_output
             }          
@@ -235,31 +338,28 @@ def sqlversion():
 @app.route("/api/sqlsrcip", methods=['GET'])
 def sqlsrcip():
     if request.method == 'GET':
-        sql_query = 'SELECT CONNECTIONPROPERTY(\'client_net_address\')'
         try:
-        #    args = request.args
-        #     if "SQL_SERVER_FQDN" in args:
-        #         sql_server_fqdn = args["SQL_SERVER_FQDN"]
-        #     else:
-        #         sql_server_fqdn = None
-        #     if "SQL_SERVER_DB" in args:
-        #         sql_server_db = args["SQL_SERVER_DB"]
-        #     else:
-        #         sql_server_db = None
-        #     if "SQL_SERVER_USERNAME" in args:
-        #         sql_server_username = args["SQL_SERVER_USERNAME"]
-        #     else:
-        #         sql_server_username = None
-        #     if "SQL_SERVER_PASSWORD" in args:
-        #         sql_server_password = args["SQL_SERVER_PASSWORD"]
-        #     else:
-        #         sql_server_password = None            
             sql_server_fqdn = request.args.get('SQL_SERVER_FQDN')
             sql_server_db = request.args.get('SQL_SERVER_DB')
             sql_server_username = request.args.get('SQL_SERVER_USERNAME')
             sql_server_password = request.args.get('SQL_SERVER_PASSWORD')
+            use_ssl = request.args.get('USE_SSL')
+            if request.args.get('SQL_ENGINE') == None:
+                sql_engine = get_variable_value('SQL_ENGINE')
+                if sql_engine == None:
+                    sql_engine = 'sqlserver'
+            else:
+                sql_engine = request.args.get('SQL_ENGINE')
+            # Select the right query for the src IP depending on the DB engine
+            if sql_engine == 'sqlserver':
+                sql_query = 'SELECT CONNECTIONPROPERTY(\'client_net_address\')'
+            elif sql_engine == 'mysql':
+                sql_query = 'SELECT host FROM information_schema.processlist WHERE ID=connection_id();'
+            elif sql_engine == 'postgres':
+                sql_query = 'SELECT inet_client_addr ();'
+
             app.logger.info('Values retrieved from the query: {0}, db {1}: credentials {2}/{3}'.format(str(sql_server_fqdn), str(sql_server_db), str(sql_server_username), str(sql_server_password)))
-            sql_output = send_sql_query(sql_server_fqdn=sql_server_fqdn, sql_server_db=sql_server_db, sql_server_username=sql_server_username, sql_server_password=sql_server_password, sql_query=sql_query)
+            sql_output = send_sql_query(sql_server_fqdn=sql_server_fqdn, sql_server_db=sql_server_db, sql_server_username=sql_server_username, sql_server_password=sql_server_password, sql_query=sql_query, sql_engine=sql_engine)
             msg = {
             'sql_output': sql_output
             }          
@@ -350,7 +450,10 @@ def ip():
             }          
             return jsonify(msg)
         except Exception as e:
-            return str(jsonify(str(e))) + str(msg)
+            if msg:
+                return str(jsonify(str(e))) + str(msg)
+            else:
+                return str(jsonify(str(e)))
 
 # Flask route to provide the container's environment variables
 @app.route("/api/printenv", methods=['GET'])
