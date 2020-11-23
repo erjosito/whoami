@@ -72,6 +72,7 @@ nic_id=$(az network private-endpoint show -n $endpoint_name -g $rg --query 'netw
 sql_endpoint_ip=$(az network nic show --ids $nic_id --query 'ipConfigurations[0].privateIpAddress' -o tsv)
 echo "Private IP address for SQL server ${sql_server_name}: ${sql_endpoint_ip}"
 
+
 # Create Azure DNS private zone and records: database.windows.net
 dns_zone_name=database.windows.net
 az network private-dns zone create -n $dns_zone_name -g $rg 

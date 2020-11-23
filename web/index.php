@@ -25,10 +25,10 @@
 				<ul class="nav">
                 <li><a href="index.php">Home</a></li>
                     <li><a href="info.php">Info</a></li>
-					<li><a href="healthcheck.html">HTML healthcheck</a></li>
+					<li><a href="healthcheck.html">Healthcheck</a></li>
 					<li><a href="healthcheck.php">PHPinfo</a></li>
-					<li><a href="https://github.com/erjosito/whoami/blob/master/api/README.md">SQL API docs</a></li>
-					<li><a href="https://github.com/erjosito/whoami/blob/master/web/README.md">SQL Web docs</a></li>
+					<li><a href="https://github.com/erjosito/whoami/blob/master/api/README.md">API docs</a></li>
+					<li><a href="https://github.com/erjosito/whoami/blob/master/web/README.md">Web docs</a></li>
                     <li>             </li>
                     <li>             </li>
                     <li>             </li>
