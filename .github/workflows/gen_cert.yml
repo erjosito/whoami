@@ -6,7 +6,9 @@ on:
 
 env:
   resource_group: whoami
-  repo_name: acilab
+  cert_email: "jose.moreno@microsoft.com"
+  cert_domain: "cloudtrooper.net"
+  cert_staging: yes
 
 jobs:
   generate_certs:
@@ -22,11 +24,9 @@ jobs:
         with:
           creds: ${{ secrets.AZURE_CREDENTIALS }}
 
-      # Install packages
-      - name: Azure CLI script
+      # Install certbot and get certificate
+      - name: "Get cert from LetsEncrypt"
         uses: azure/CLI@v1
-        env:
-          AZURE_CREDENTIALS: ${{ secrets.AZURE_CREDENTIALS }}
         with:
           azcliversion: latest
           inlineScript: |
@@ -34,8 +34,10 @@ jobs:
             pip3 install pip --upgrade
             pip3 install certbot
             mkdir /etc/letsencrypt
-            printenv
             az account show
             chmod +x $GITHUB_WORKSPACE/scripts/certbot_generate.sh
             $GITHUB_WORKSPACE/scripts/certbot_generate.sh \
-                -g=${{ env.resource_group }}
+                -g=${{ env.resource_group }} \
+                -e=${{ env.cert_email }} \
+                -d=${{ env.cert_domain }} \
+                -s=${{ env.cert_staging }}

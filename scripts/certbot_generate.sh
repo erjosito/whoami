@@ -1,5 +1,34 @@
 #!/bin/bash
-# Verify dependencies
+
+# Argument parsing (can overwrite the previously initialized variables)
+for i in "$@"
+do
+     case $i in
+          -g=*|--resource-group=*)
+               rg="${i#*=}"
+               shift # past argument=value
+               ;;
+          -d=*|--public-dns-zone-name=*)
+               public_domain="${i#*=}"
+               shift # past argument=value
+               ;;
+          -e=*|--email=*)
+               email_address="${i#*=}"
+               shift # past argument=value
+               ;;
+          -s=*|--staging=*)
+               staging="${i#*=}"
+               shift # past argument=value
+               ;;
+          --debug=*)
+               DEBUG="${i#*=}"
+               shift # past argument=value
+               ;;
+     esac
+done
+set -- "${POSITIONAL[@]}" # restore positional parameters
+
+# Verify certbot is installed
 certbot_exec=$(which certbot)
 if [[ -n "$certbot_exec" ]]
 then
@@ -9,33 +38,58 @@ else
     exit 1
 fi
 
+# Verify there is an AKV in the RG
+akv_name=$(az keyvault list -g "$rg" --query '[0].name' -o tsv)
+if [[ -n "$akv_name" ]]
+then
+    echo "INFO: Azure Key Vault $akv_name found in resource group $rg"
+else
+    echo "ERROR: no Azure Key Vault found in resource group $rg"
+    exit 1
+fi
+
+# Verify there is a DNS zone for the domain in the subscription
+public_dns_rg=$(az network dns zone list --query "[?name=='$public_domain'].resourceGroup" -o tsv)
+if [[ -n "$public_dns_rg" ]]
+then
+    echo "INFO: Azure DNS zone $public_domain found in resource group $public_dns_rg"
+else
+    echo "ERROR: public DNS zone $public_domain could not be found in current subscription"
+    exit 1
+fi
+
 # Create certificate (optionally using the staging server)
-if [[ "$STAGING" == "yes" ]]
+current_dir=$(dirname "$0")
+if [[ "$staging" == "yes" ]]
 then
     echo "Generating cert in staging server..."
-    certbot certonly -n -d "$DOMAIN" --manual -m "$EMAIL" --preferred-challenges=dns \
+    certbot certonly -n -d "$public_domain" --manual -m "$email_address" --preferred-challenges=dns \
         --staging --manual-public-ip-logging-ok --agree-tos \
-        --manual-auth-hook /home/certbot_auth.sh --manual-cleanup-hook /home/certbot_cleanup.sh
+        --manual-auth-hook "${current_dir}/certbot_auth.sh" --manual-cleanup-hook "${current_dir}/certbot_cleanup.sh"
 else
     echo "Generating cert in production server..."
-    certbot certonly -n -d "$DOMAIN" --manual -m "$EMAIL" --preferred-challenges=dns \
+    certbot certonly -n -d "$public_domain" --manual -m "$email_address" --preferred-challenges=dns \
         --manual-public-ip-logging-ok --agree-tos \
-        --manual-auth-hook /home/certbot_auth.sh --manual-cleanup-hook /home/certbot_cleanup.sh
+        --manual-auth-hook "${current_dir}/certbot_auth.sh" --manual-cleanup-hook "${current_dir}/certbot_cleanup.sh"
 fi
 # If debugging, show created certificates
 if [[ "$DEBUG" == "yes" ]]
 then
-    ls -al "/etc/letsencrypt/live/${DOMAIN}/"
-    cat "/etc/letsencrypt/live/${DOMAIN}/fullchain.pem"
-    cat "/etc/letsencrypt/live/${DOMAIN}/privkey.pem"
+    ls -al "/etc/letsencrypt/live/${public_domain}/"
+    cat "/etc/letsencrypt/live/${public_domain}/fullchain.pem"
+    cat "/etc/letsencrypt/live/${public_domain}/privkey.pem"
     cat "/var/log/letsencrypt/letsencrypt.log"
 fi
 # Variables to create AKV cert
-pem_file="/etc/letsencrypt/live/${DOMAIN}/fullchain.pem"
-key_file="/etc/letsencrypt/live/${DOMAIN}/privkey.pem"
-cert_name=$(echo $DOMAIN | tr -d '.')
+pem_file="/etc/letsencrypt/live/${public_domain}/fullchain.pem"
+key_file="/etc/letsencrypt/live/${public_domain}/privkey.pem"
+cert_name=$(echo "$public_domain" | tr -d '.')
+key_password=$(tr -dc a-zA-z0-9 </dev/urandom 2>dev/null| head -c 12)
 # Combine PEM and key in one pfx file (pkcs#12)
 pfx_file=".${pem_file}.pfx"
-openssl pkcs12 -export -in $pem_file -inkey $key_file -out $pfx_file -passin pass:$key_password -passout pass:$key_password
-# Add certificate
-az keyvault certificate import --vault-name "$AKV" -n "$cert_name" -f $pfx_file
+openssl pkcs12 -export -in "$pem_file" -inkey "$key_file" -out "$pfx_file" -passin "pass:$key_password" -passout "pass:$key_password"
+# Add certificate to AKV
+az keyvault certificate import --vault-name "$akv_name" -n "$cert_name" -f "$pfx_file"
+# Add key phrase to AKV
+akv_secret_name="${cert_name}passphrase"
+az keyvault secret set -n "$akv_secret_name" --value "$key_password" --vault-name "$akv_name"
