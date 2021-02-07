@@ -62,7 +62,7 @@ function random_string () {
     else
       length=6
     fi
-    echo $(tr -dc a-z </dev/urandom | head -c $length ; echo '')
+    echo "$(tr -dc a-z </dev/urandom | head -c $length ; echo '')"
 }
 
 # Generate a 6-character, lower-case alphabetic, random string
@@ -70,7 +70,7 @@ unique_id=$(random_string 6)
 
 # Create RG
 sub_name=$(az account show --query name -o tsv)
-rg_id=$(az group show -n $rg --query id -o tsv)
+rg_id=$(az group show -n "$rg" --query id -o tsv)
 if [[ -z "$rg_id" ]]
 then
   echo "INFO: Creating new resource group..."
@@ -108,8 +108,8 @@ dns_zone_id=$(az network private-dns zone show -n "$dns_zone_name" -g "$rg" --qu
 if [[ -z "$dns_zone_id" ]]
 then
   echo "INFO: Creating new private DNS zone $dns_zone_name..."
-  az network private-dns zone create -n "$dns_zone_name" -g $rg 
-  az network private-dns link vnet create -g $rg -z "$dns_zone_name" -n contoso --virtual-network "$vnet_name" --registration-enabled false
+  az network private-dns zone create -n "$dns_zone_name" -g "$rg" 
+  az network private-dns link vnet create -g "$rg" -z "$dns_zone_name" -n contoso --virtual-network "$vnet_name" --registration-enabled false
 else
   echo "INFO: Private DNS zone $dns_zone_name already existing in resource group $rg"
 fi
@@ -124,7 +124,7 @@ then
   sp_appid=$(az account show --query user.name -o tsv)
   sp_oid=$(az ad sp show --id "$sp_appid" --query objectId -o tsv)
   az keyvault set-policy -n "$akv_name" --object-id "$sp_oid" \
-          --secret-permissions get list set update \
+          --secret-permissions get list set update delete \
           --certificate-permissions create import list get setissuers update \
           --key-permissions create get import sign verify list
 else
@@ -209,7 +209,7 @@ EOF
   # Create vnet service endpoint for Azure Storage Account for ACI subnet
   az network vnet subnet update -g "$rg" -n "$aci_subnet_name" --vnet-name "$vnet_name" --service-endpoints Microsoft.Storage
   az storage account update -n "$storage_account_name" -g "$rg" --default-action Deny
-  az storage account network-rule add -n "$storage_account_name" -g $rg --subnet $aci_subnet_name --vnet-name $vnet_name --action Allow
+  az storage account network-rule add -n "$storage_account_name" -g "$rg" --subnet "$aci_subnet_name" --vnet-name "$vnet_name" --action Allow
 else
   echo "INFO: Azure Storage Account $storage_account_name already exists in resource group $rg"
 fi
@@ -221,7 +221,7 @@ then
   echo "INFO: Creating new application gateway..."
   appgw_pip_dns="${appgw_name}-${unique_id}"
   allocation_method=Static
-  az network public-ip create -g "$rg" -n "$appgw_pip_name" --sku Standard --allocation-method $allocation_method --dns-name $appgw_pip_dns
+  az network public-ip create -g "$rg" -n "$appgw_pip_name" --sku Standard --allocation-method "$allocation_method" --dns-name "$appgw_pip_dns"
   appgw_fqdn=$(az network public-ip show -g "$rg" -n "$appgw_pip_name" --query dnsSettings.fqdn -o tsv)
   az network application-gateway create -g "$rg" -n $appgw_name --min-capacity 1 --max-capacity 2 --sku Standard_v2 \
       --frontend-port 1234 --routing-rule-type basic \

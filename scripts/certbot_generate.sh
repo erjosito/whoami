@@ -20,6 +20,10 @@ do
                staging="${i#*=}"
                shift # past argument=value
                ;;
+          -p=*|--use_key_passphrase=*)
+               use_key_passphrase="${i#*=}"
+               shift # past argument=value
+               ;;
           --debug=*)
                DEBUG="${i#*=}"
                shift # past argument=value
@@ -70,7 +74,8 @@ fi
 
 # Verify if cert already exists in the Azure Key Vault
 fqdn="${appgw_name}.${public_domain}"
-cert_name=$(echo "$fqdn" | sed 's/[^a-zA-Z0-9]//g')
+# cert_name=$(echo "$fqdn" | sed 's/[^a-zA-Z0-9]//g')
+cert_name=${fqdn//[^a-zA-Z0-9]/}
 cert_id=$(az keyvault certificate show -n "$cert_name" --vault-name "$akv_name" --query id -o tsv 2>/dev/null)
 if [[ -n "$cert_id" ]]
 then
@@ -81,10 +86,13 @@ then
     echo "INFO: Creation date:     $cert_creation_date"
     echo "INFO: Expiration date:   $cert_expiration_date"
     echo "INFO: Validity (months): $cert_validity_months"
-    exit 0
+    # Only exit if working on the production LetsEncrypt API
+    if [[ "$staging" != "yes" ]]
+    then
+        exit 0
+    fi
 else
     echo "INFO: Certificate $cert_name does not exist in Key Vault $akv_name"
-    exit 0
 fi
 
 # Create certificate (optionally using the staging server)
@@ -112,7 +120,12 @@ fi
 # Variables to create AKV cert
 pem_file="/etc/letsencrypt/live/${fqdn}/fullchain.pem"
 key_file="/etc/letsencrypt/live/${fqdn}/privkey.pem"
-key_passphrase=$(tr -dc a-zA-z0-9 </dev/urandom 2>/dev/null| head -c 12)
+if [[ "$use_key_passphrase" == "yes" ]]
+then
+    key_passphrase=$(tr -dc a-zA-Z0-9 </dev/urandom 2>/dev/null| head -c 12)
+else
+    key_passphrase=''
+fi
 # Combine PEM and key in one pfx file (pkcs#12)
 echo "Generating pfx file with cert chain and private key..."
 pfx_file="${pem_file}.pfx"
@@ -121,9 +134,21 @@ echo "Verifying generated pfx file..."
 openssl pkcs12 -info -in "$pfx_file" -passin "pass:$key_passphrase"
 # Add certificate to AKV
 echo "Adding certificate $cert_name to Azure Key Vault..."
-az keyvault certificate import --vault-name "$akv_name" -n "$cert_name" -f "$pfx_file" --password "$key_passphrase"
+if [[ "$use_key_passphrase" == "yes" ]]
+then
+    az keyvault certificate import --vault-name "$akv_name" -n "$cert_name" -f "$pfx_file" --password "$key_passphrase"
+else
+    az keyvault certificate import --vault-name "$akv_name" -n "$cert_name" -f "$pfx_file"
+fi
 # Add key phrase to AKV
 akv_secret_name="${cert_name}passphrase"
-akv_secret_name=$(echo "$akv_secret_name" | sed 's/[^a-zA-Z0-9]//g')
-echo "Adding certificate key passphrase to Azure Key Vault $akv_name as secret $akv_secret_name"
-az keyvault secret set -n "$akv_secret_name" --value "$key_passphrase" --vault-name "$akv_name"
+# akv_secret_name=$(echo "$akv_secret_name" | sed 's/[^a-zA-Z0-9]//g')
+akv_secret_name=${akv_secret_name//[^a-zA-Z0-9]/}
+if [[ "$use_key_passphrase" == "yes" ]]
+then
+    echo "Adding certificate key passphrase to Azure Key Vault $akv_name as secret $akv_secret_name"
+    az keyvault secret set -n "$akv_secret_name" --value "$key_passphrase" --vault-name "$akv_name"
+else
+    echo "Making sure there is no key passphrase secret in Azure Key Vault $akv_name as secret $akv_secret_name"
+    az keyvault secret delete -n "$akv_secret_name" --vault-name "$akv_name"
+fi
