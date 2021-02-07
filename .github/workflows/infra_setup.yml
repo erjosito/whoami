@@ -41,10 +41,10 @@ jobs:
           inlineScript: |
             chmod +x $GITHUB_WORKSPACE/scripts/init_rg.sh
             $GITHUB_WORKSPACE/scripts/init_rg.sh \
-                "-g=${{ env.resource_group" }} \
-                "-l=${{ env.location }}" \
-                "-u=${{ secrets.SQL_USERNAME }}" \
-                "-p=${{ secrets.SQL_PASSWORD }}" \
-                "-z=${{ env.private_domain }}" \
-                "-p=${{ env.public_domain }}"
+                -g=${{ env.resource_group" }} \
+                -l=${{ env.location }} \
+                -u=${{ secrets.SQL_USERNAME }} \
+                -p=${{ secrets.SQL_PASSWORD }} \
+                -z=${{ env.private_domain }} \
+                -p=${{ env.public_domain }}
 
