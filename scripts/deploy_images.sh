@@ -130,9 +130,12 @@ fi
 if [[ -n "$AZURE_CREDENTIALS" ]]
 then
     echo "$AZURE_CREDENTIALS"  ########################################## Remove this!
-    sp_appid="$(echo $AZURE_CREDENTIALS | jq -r '.clientId')"
-    sp_password=$(echo "$AZURE_CREDENTIALS" | jq -r '.clientSecret')
-    sp_tenant="$(echo $AZURE_CREDENTIALS | jq -r '.tenantId')"
+    # sp_appid=$(echo "$AZURE_CREDENTIALS" | jq -r '.clientId')
+    # sp_password=$(echo "$AZURE_CREDENTIALS" | jq -r '.clientSecret')
+    # sp_tenant=$(echo "$AZURE_CREDENTIALS" | jq -r '.tenantId')
+    sp_appid=$(jq -r '.clientId' <<<"$AZURE_CREDENTIALS")
+    sp_password=$(jq -r '.clientSecret' <<<"$AZURE_CREDENTIALS")
+    sp_tenant=$(jq -r '.tenantId' <<<"$AZURE_CREDENTIALS")
     echo "Extracted application ID and password for service principal $sp_appid in tenant $sp_tenant"
 else
     echo "ERROR: AZURE_CREDENTIALS environment variable not found"
@@ -200,10 +203,11 @@ pfx_file="/tmp/ssl.pfx"
 # az keyvault certificate download -n "$cert_name" --vault-name "$akv_name" --encoding der --file "$cert_file"
 az keyvault secret download -n "$cert_name" --vault-name "$akv_name" --encoding base64 --file "$pfx_file"
 echo "Extracting key from pfx file..."
-openssl pkcs12 -in "$pfx_file" -nocerts -out "$key_file" -passin "pass:" -passout "pass:"
+key_passphrase=$(tr -dc a-zA-Z0-9 </dev/urandom 2>/dev/null| head -c 12)
+openssl pkcs12 -in "$pfx_file" -nocerts -out "$key_file" -passin "pass:" -passout "pass:$key_passphrase"
+openssl rsa -in "$key_file" -out "$key_file" -passin "pass:$key_passphrase"
 echo "Extracting certs from pfx file..."
-openssl pkcs12 -in "$pfx_file" -clcerts -nokeys -out "$cert_file"
-
+openssl pkcs12 -in "$pfx_file" -clcerts -nokeys -out "$cert_file" -passin "pass:" 
 # Encode in base64 variables
 ssl_crt=$(base64 "$cert_file")
 ssl_key=$(base64 "$key_file")
