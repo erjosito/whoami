@@ -113,7 +113,7 @@ echo "Verifying generated pfx file..."
 openssl pkcs12 -info -in "$pfx_file" -passin "pass:$key_passphrase"
 # Add certificate to AKV
 echo "Adding certificate $cert_name to Azure Key Vault..."
-az keyvault certificate import --vault-name "$akv_name" -n "$cert_name" -f "$pfx_file"
+az keyvault certificate import --vault-name "$akv_name" -n "$cert_name" -f "$pfx_file" --password "$key_passphrase"
 # Add key phrase to AKV
 akv_secret_name="${cert_name}passphrase"
 akv_secret_name=$(echo "$akv_secret_name" | sed 's/[^a-zA-Z0-9]//g')
