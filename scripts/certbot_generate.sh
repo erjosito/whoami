@@ -74,7 +74,14 @@ cert_name=$(echo "$fqdn" | sed 's/[^a-zA-Z0-9]//g')
 cert_id=$(az keyvault certificate show -n "$cert_name" --vault-name "$akv_name" --query id -o tsv 2>/dev/null)
 if [[ -n "$cert_id" ]]
 then
-    echo "INFO: Certificate $cert_name already exists in Key Vault $akv_name"
+    echo "INFO: Certificate $cert_name already exists in Key Vault $akv_name, no need to create another one"
+    cert_expiration_date=$(az keyvault certificate show -n "$cert_name" --vault-name "$akv_name" --query 'policy.attributes.expires' -o tsv 2>/dev/null)
+    cert_creation_date=$(az keyvault certificate show -n "$cert_name" --vault-name "$akv_name" --query 'policy.attributes.created' -o tsv 2>/dev/null)
+    cert_validity_months=$(az keyvault certificate show -n appgwcloudtroopernet --vault-name "$akv_name" --query policy.x509CertificateProperties.validityInMonths)
+    echo "INFO: Creation date:     $cert_creation_date"
+    echo "INFO: Expiration date:   $cert_expiration_date"
+    echo "INFO: Validity (months): $cert_validity_months"
+    exit 0
 else
     echo "INFO: Certificate $cert_name does not exist in Key Vault $akv_name"
 fi
