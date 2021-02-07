@@ -9,6 +9,7 @@ env:
   cert_email: "jose.moreno@microsoft.com"
   cert_domain: "cloudtrooper.net"
   cert_staging: yes
+  cert_key_passphrase: no
 
 jobs:
   generate_certs:
@@ -42,4 +43,5 @@ jobs:
                 -g=${{ env.resource_group }} \
                 -e=${{ env.cert_email }} \
                 -d=${{ env.cert_domain }} \
-                -s=${{ env.cert_staging }}
+                -s=${{ env.cert_staging }} \
+                -p=${{ env.cert_key_passphrase }}
