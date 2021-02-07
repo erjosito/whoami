@@ -109,9 +109,10 @@ key_passphrase=$(tr -dc a-zA-z0-9 </dev/urandom 2>/dev/null| head -c 12)
 echo "Generating pfx file with cert chain and private key..."
 pfx_file="${pem_file}.pfx"
 openssl pkcs12 -export -in "$pem_file" -inkey "$key_file" -out "$pfx_file" -passin "pass:$key_passphrase" -passout "pass:$key_passphrase"
+echo "Verifying generated pfx file..."
 openssl pkcs12 -info -in "$pfx_file" -passin "pass:$key_passphrase"
 # Add certificate to AKV
-echo "Importing certificates into Azure Key Vault..."
+echo "Adding certificate $cert_name to Azure Key Vault..."
 az keyvault certificate import --vault-name "$akv_name" -n "$cert_name" -f "$pfx_file"
 # Add key phrase to AKV
 akv_secret_name="${cert_name}passphrase"

@@ -8,7 +8,7 @@ env:
   resource_group: whoami
   cert_email: "jose.moreno@microsoft.com"
   cert_domain: "cloudtrooper.net"
-  cert_staging: yes
+  cert_staging: no
 
 jobs:
   generate_certs:
