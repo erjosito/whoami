@@ -54,13 +54,13 @@ echo "Adding SSL certificate to Application Gateway from Key Vault ($cert_sid)..
 # cert_sid=$(az keyvault certificate show -n "$cert_name" --vault-name "$akv_name" --query sid -o tsv)
 # az network application-gateway ssl-cert create -n "$cert_name" --gateway-name "$appgw_name" -g "$rg" --keyvault-secret-id "$cert_sid"
 pfx_file="/tmp/ssl.pfx"
-az keyvault key download -n "$cert_name" --vault-name "$akv_name" --encoding base64 --file "$pfx_file"
+az keyvault secret download -n "$cert_name" --vault-name "$akv_name" --encoding base64 --file "$pfx_file"
 cert_passphrase=''
-az network application-gateway ssl-cert create -g "$rg" --gateway-name "$appgw_name" -n contoso --cert-file "$pfx_file" --cert-password "$cert_passphrase"
+az network application-gateway ssl-cert create -g "$rg" --gateway-name "$appgw_name" -n contoso --cert-file "$pfx_file" --cert-password "$cert_passphrase" -o none
 
 # Import root cert for LetsEncrypt
 current_dir=$(dirname "$0")
 base_dir=$(dirname "$current_dir")
 root_cert_file="${base_dir}/letsencrypt/isrgrootx1.crt"
 echo "Adding LetsEncrypt root cert to Application Gateway..."
-az network application-gateway root-cert create -g "$rg" --gateway-name "$appgw_name" --name letsencrypt --cert-file "$root_cert_file"
+az network application-gateway root-cert create -g "$rg" --gateway-name "$appgw_name" --name letsencrypt --cert-file "$root_cert_file" -o none

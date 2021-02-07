@@ -129,6 +129,7 @@ fi
 # Get Service Principal ID and password from the AZURE_CREDENTIALS env variable
 if [[ -n "$AZURE_CREDENTIALS" ]]
 then
+    echo "$AZURE_CREDENTIALS"  ########################################## Remove this!
     sp_appid=$(echo "$AZURE_CREDENTIALS" | jq -r '.clientId')
     sp_password=$(echo "$AZURE_CREDENTIALS" | jq -r '.clientSecret')
     sp_tenant=$(echo "$AZURE_CREDENTIALS" | jq -r '.tenantId')
@@ -197,7 +198,7 @@ cert_file="/tmp/ssl.crt"
 key_file="/tmp/ssl.key"
 pfx_file="/tmp/ssl.pfx"
 # az keyvault certificate download -n "$cert_name" --vault-name "$akv_name" --encoding der --file "$cert_file"
-az keyvault key download -n "$cert_name" --vault-name "$akv_name" --encoding base64 --file "$pfx_file"
+az keyvault secret download -n "$cert_name" --vault-name "$akv_name" --encoding base64 --file "$pfx_file"
 openssl pkcs12 -in "$pfx_file" -nocerts -out "$key_file" -passin "pass:"
 openssl pkcs12 -in "$pfx_file" -clcerts -nokeys -out "$cert_file"
 
