@@ -28,8 +28,8 @@ jobs:
         with:
           azcliversion: latest
           inlineScript: |
-            chmod +x $GITHUB_WORKSPACE/scripts/init_rg.sh
-            $GITHUB_WORKSPACE/scripts/init_rg.sh \
+            chmod +x $GITHUB_WORKSPACE/scripts/build_images.sh
+            $GITHUB_WORKSPACE/scripts/build_images.sh \
                 -g=${{ env.resource_group }} \
                 -r=${{ env.repo_name }} \
                 -d=$GITHUB_WORKSPACE
