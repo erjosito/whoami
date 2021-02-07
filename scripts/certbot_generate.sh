@@ -84,6 +84,7 @@ then
     exit 0
 else
     echo "INFO: Certificate $cert_name does not exist in Key Vault $akv_name"
+    exit 0
 fi
 
 # Create certificate (optionally using the staging server)
