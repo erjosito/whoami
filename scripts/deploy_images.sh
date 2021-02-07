@@ -127,9 +127,16 @@ else
 fi
 
 # Get Service Principal ID and password from the AZURE_CREDENTIALS env variable
-sp_appid=$(echo "$AZURE_CREDENTIALS" | jq -r '.clientId')
-sp_password=$(echo "$AZURE_CREDENTIALS" | jq -r '.clientSecret')
-sp_tenant=$(echo "$AZURE_CREDENTIALS" | jq -r '.tenantId')
+if [[ -n "$AZURE_CREDENTIALS" ]]
+then
+    sp_appid=$(echo "$AZURE_CREDENTIALS" | jq -r '.clientId')
+    sp_password=$(echo "$AZURE_CREDENTIALS" | jq -r '.clientSecret')
+    sp_tenant=$(echo "$AZURE_CREDENTIALS" | jq -r '.tenantId')
+    echo "Extracted application ID and password for service principal $sp_appid in tenant $sp_tenant"
+else
+    echo "ERROR: AZURE_CREDENTIALS environment variable not found"
+    exit 1
+fi
 
 # Create nginx.conf for SSL
 nginx_config_file=/tmp/nginx.conf
@@ -188,10 +195,15 @@ cert_name=${fqdn//[^a-zA-Z0-9]/}
 echo "Getting certificate $cert_name from Azure Key Vault $akv_name"
 cert_file="/tmp/ssl.crt"
 key_file="/tmp/ssl.key"
-az keyvault certificate download -n "$cert_name" --vault-name "$akv_name" --encoding der --file "$cert_file"
-az keyvault key download -n "$cert_name" --vault-name "$akv_name" --encoding base64 --file "$key_file"
+pfx_file="/tmp/ssl.pfx"
+# az keyvault certificate download -n "$cert_name" --vault-name "$akv_name" --encoding der --file "$cert_file"
+az keyvault key download -n "$cert_name" --vault-name "$akv_name" --encoding base64 --file "$pfx_file"
+openssl pkcs12 -in "$pfx_file" -nocerts -out "$key_file" -passin "pass:"
+openssl pkcs12 -in "$pfx_file" -clcerts -nokeys -out "$cert_file"
+
+# Encode in base64 variables
 ssl_crt=$(base64 "$cert_file")
-ssl_key=$(cat "$key_file")
+ssl_key=$(base64 "$key_file")
 
 # Function to deploy an ACI to the vnet
 function deploy_aci() {

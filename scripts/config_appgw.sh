@@ -49,9 +49,14 @@ fi
 # Import certs from AKV
 fqdn="${appgw_name}.${public_domain}"
 cert_name=${fqdn//[^a-zA-Z0-9]/}
-cert_sid=$(az keyvault certificate show -n "$cert_name" --vault-name "$akv_name" --query sid -o tsv)
 echo "Adding SSL certificate to Application Gateway from Key Vault ($cert_sid)..."
-az network application-gateway ssl-cert create -n "$cert_name" --gateway-name "$appgw_name" -g "$rg" --keyvault-secret-id "$cert_sid"
+# The --keyvault-secret-id parameter doesnt seem to be working in Github's action CLI version (Feb 2021)
+# cert_sid=$(az keyvault certificate show -n "$cert_name" --vault-name "$akv_name" --query sid -o tsv)
+# az network application-gateway ssl-cert create -n "$cert_name" --gateway-name "$appgw_name" -g "$rg" --keyvault-secret-id "$cert_sid"
+pfx_file="/tmp/ssl.pfx"
+az keyvault key download -n "$cert_name" --vault-name "$akv_name" --encoding base64 --file "$pfx_file"
+cert_passphrase=''
+az network application-gateway ssl-cert create -g "$rg" --gateway-name "$appgw_name" -n contoso --cert-file "$pfx_file" --cert-password "$cert_passphrase"
 
 # Import root cert for LetsEncrypt
 current_dir=$(dirname "$0")
