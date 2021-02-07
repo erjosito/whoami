@@ -2,7 +2,10 @@ name: Deploy infrastructure
 
 on:
   workflow_dispatch:
-    inputs:
+    inputs: {}
+
+env:
+  resource_group: whoami
 
 jobs:
   create_infra:
@@ -23,15 +26,15 @@ jobs:
       - name: Azure CLI script
         uses: azure/CLI@v1
         with:
-          azcliversion: 2.0.72
+          azcliversion: latest
           inlineScript: |
             az account show
 
       # Run script in repo
-#      - name: Azure CLI script file
-#        uses: azure/CLI@v1
-#        with:
-#          azcliversion: 2.0.72
-#          inlineScript: |
-#            chmod +x $GITHUB_WORKSPACE/sampleScript.sh
-#            $GITHUB_WORKSPACE/sampleScript.sh
+      - name: Azure CLI script file
+        uses: azure/CLI@v1
+        with:
+          azcliversion: latest
+          inlineScript: |
+            chmod +x $GITHUB_WORKSPACE/scripts/init_rg.sh
+            $GITHUB_WORKSPACE/init_rg.sh -g=acilab -l=westeurope
