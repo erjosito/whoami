@@ -16,9 +16,17 @@ jobs:
       - name: git checkout main branch
         uses: actions/checkout@v2
 
+      # log into Azure
+      - name: "Login via Azure CLI"
+        uses: azure/login@v1
+        with:
+          creds: ${{ secrets.AZURE_CREDENTIALS }}
+
       # Install packages
       - name: Azure CLI script
         uses: azure/CLI@v1
+        env:
+          AZURE_CREDENTIALS: ${{ secrets.AZURE_CREDENTIALS }}
         with:
           azcliversion: latest
           inlineScript: |
@@ -26,19 +34,8 @@ jobs:
             pip3 install pip --upgrade
             pip3 install certbot
             mkdir /etc/letsencrypt
-
-      # log into Azure
-      - name: "Login via Azure CLI"
-        uses: azure/login@v1
-        with:
-          creds: ${{ secrets.AZURE_CREDENTIALS }}
-  
-      # Run script in repo
-      - name: Azure CLI script file
-        uses: azure/CLI@v1
-        with:
-          azcliversion: latest
-          inlineScript: |
+            printenv
+            az account show
             chmod +x $GITHUB_WORKSPACE/scripts/certbot_generate.sh
             $GITHUB_WORKSPACE/scripts/certbot_generate.sh \
-                -g=${{ env.resource_group }} \
+                -g=${{ env.resource_group }}
