@@ -89,7 +89,7 @@ then
         --manual-auth-hook "${current_dir}/certbot_auth.sh" --manual-cleanup-hook "${current_dir}/certbot_cleanup.sh"
 else
     echo "Generating cert in production server..."
-    certbot certonly -n -d "$public_domain" --manual -m "$email_address" --preferred-challenges=dns \
+    certbot certonly -n -d "$fqdn" --manual -m "$email_address" --preferred-challenges=dns \
         --manual-public-ip-logging-ok --agree-tos \
         --manual-auth-hook "${current_dir}/certbot_auth.sh" --manual-cleanup-hook "${current_dir}/certbot_cleanup.sh"
 fi
