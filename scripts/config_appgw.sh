@@ -49,7 +49,7 @@ fi
 # Import certs from AKV
 fqdn="${appgw_name}.${public_domain}"
 cert_name=${fqdn//[^a-zA-Z0-9]/}
-echo "Adding SSL certificate to Application Gateway from Key Vault ($cert_sid)..."
+echo "Adding SSL certificate to Application Gateway from Key Vault..."
 # The --keyvault-secret-id parameter doesnt seem to be working in Github's action CLI version (Feb 2021)
 # cert_sid=$(az keyvault certificate show -n "$cert_name" --vault-name "$akv_name" --query sid -o tsv)
 # az network application-gateway ssl-cert create -n "$cert_name" --gateway-name "$appgw_name" -g "$rg" --keyvault-secret-id "$cert_sid"

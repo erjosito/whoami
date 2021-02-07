@@ -126,21 +126,28 @@ else
   storage_account_key=$(az storage account keys list --account-name "$storage_account_name" -g "$rg" --query '[0].value' -o tsv)
 fi
 
-# Get Service Principal ID and password from the AZURE_CREDENTIALS env variable
+# Get Service Principal ID and password from the AZURE_CREDENTIALS env variable if supplied
 if [[ -n "$AZURE_CREDENTIALS" ]]
 then
     echo "$AZURE_CREDENTIALS"  ########################################## Remove this!
-    # sp_appid=$(echo "$AZURE_CREDENTIALS" | jq -r '.clientId')
-    # sp_password=$(echo "$AZURE_CREDENTIALS" | jq -r '.clientSecret')
-    # sp_tenant=$(echo "$AZURE_CREDENTIALS" | jq -r '.tenantId')
-    sp_appid=$(jq -r '.clientId' <<<"$AZURE_CREDENTIALS")
-    sp_password=$(jq -r '.clientSecret' <<<"$AZURE_CREDENTIALS")
-    sp_tenant=$(jq -r '.tenantId' <<<"$AZURE_CREDENTIALS")
+    # sp_appid=$(jq -r '.clientId' <<<"$AZURE_CREDENTIALS")
+    # sp_password=$(jq -r '.clientSecret' <<<"$AZURE_CREDENTIALS")
+    # sp_tenant=$(jq -r '.tenantId' <<<"$AZURE_CREDENTIALS")
+    sp_appid=$(echo "$AZURE_CREDENTIALS" | grep clientId | cut -d ' ' -f 4 | cut -d ',' -f 1)
+    sp_password=$(echo "$AZURE_CREDENTIALS" | grep clientSecret | cut -d ' ' -f 4 | cut -d ',' -f 1)
+    sp_tenant=$(echo "$AZURE_CREDENTIALS" | grep tenantId | cut -d ' ' -f 4 | cut -d ',' -f 1)
     echo "Extracted application ID and password for service principal $sp_appid in tenant $sp_tenant"
 else
     echo "ERROR: AZURE_CREDENTIALS environment variable not found"
     exit 1
 fi
+
+# Get user/password for ACR
+# az acr update -n "$acr_name" --admin-enabled true
+# echo "Getting username and password for ACR..."
+# sp_appid=$(az acr credential show -n "$acr_name" --query username -o tsv)
+# sp_password=$(az acr credential show -n "$acr_name" --query passwords[0].value -o tsv)
+# WRONG, we need the SP for the init container too!! :(
 
 # Create nginx.conf for SSL
 nginx_config_file=/tmp/nginx.conf

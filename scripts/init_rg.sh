@@ -86,6 +86,7 @@ then
   echo "INFO: Creating new ACR..."
   acr_name="acilab${unique_id}"
   az acr create -n "$acr_name" -g "$rg" --sku Premium
+  az acr update -n "$acr_name" --admin-enabled true
 else
   echo "INFO: ACR $acr_name found in resource group $rg"
 fi
