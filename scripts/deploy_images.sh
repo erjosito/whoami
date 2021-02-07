@@ -48,6 +48,12 @@ do
 done
 set -- "${POSITIONAL[@]}" # restore positional parameters
 
+# If no location, infer from RG
+if [[ -z "$location" ]]
+then
+    location=$(az group show -n "$rg" --query location -o tsv)
+fi
+
 # Get ACR name
 acr_name=$(az acr list -g "$rg" --query '[0].name' -o tsv)
 if [[ -z "$acr_name" ]]

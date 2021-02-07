@@ -7,6 +7,8 @@ on:
 env:
   resource_group: whoami
   repo_name: acilab
+  public_domain: "cloudtrooper.net"
+  private_domain: "contoso.com"
 
 jobs:
   deploy_images:
@@ -30,8 +32,11 @@ jobs:
         with:
           azcliversion: latest
           inlineScript: |
-            chmod +x $GITHUB_WORKSPACE/scripts/build_images.sh
-            $GITHUB_WORKSPACE/scripts/build_images.sh \
+            chmod +x $GITHUB_WORKSPACE/scripts/deploy_images.sh
+            $GITHUB_WORKSPACE/scripts/deploy_images.sh \
                 -g=${{ env.resource_group }} \
                 -r=${{ env.repo_name }} \
-                -d=$GITHUB_WORKSPACE
+                -u=${{ secrets.SQL_USERNAME }} \
+                -p=${{ secrets.SQL_PASSWORD }} \
+                -z=${{ env.private_domain }} \
+                -d=${{ env.public_domain }}

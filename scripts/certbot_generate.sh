@@ -24,6 +24,10 @@ do
                use_key_passphrase="${i#*=}"
                shift # past argument=value
                ;;
+          -f=*|--force=*)
+               force="${i#*=}"
+               shift # past argument=value
+               ;;
           --debug=*)
                DEBUG="${i#*=}"
                shift # past argument=value
@@ -86,8 +90,8 @@ then
     echo "INFO: Creation date:     $cert_creation_date"
     echo "INFO: Expiration date:   $cert_expiration_date"
     echo "INFO: Validity (months): $cert_validity_months"
-    # Only exit if working on the production LetsEncrypt API
-    if [[ "$staging" != "yes" ]]
+    # Exit unless running in force mode
+    if [[ "$force" != "yes" ]]
     then
         exit 0
     fi

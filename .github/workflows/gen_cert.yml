@@ -10,6 +10,7 @@ env:
   cert_domain: "cloudtrooper.net"
   cert_staging: yes
   cert_key_passphrase: no
+  cert_force_creation: yes
 
 jobs:
   generate_certs:
@@ -44,4 +45,5 @@ jobs:
                 -e=${{ env.cert_email }} \
                 -d=${{ env.cert_domain }} \
                 -s=${{ env.cert_staging }} \
+                -f=${{ env.cert_force_creation }} \
                 -p=${{ env.cert_key_passphrase }}

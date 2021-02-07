@@ -6,7 +6,8 @@ on:
 
 env:
   resource_group: whoami
-  repo_name: acilab
+  public_domain: "cloudtrooper.net"
+  private_domain: "contoso.com"
 
 jobs:
   config_appgw:
@@ -28,8 +29,8 @@ jobs:
         with:
           azcliversion: latest
           inlineScript: |
-            chmod +x $GITHUB_WORKSPACE/scripts/build_images.sh
-            $GITHUB_WORKSPACE/scripts/build_images.sh \
+            chmod +x $GITHUB_WORKSPACE/scripts/config_appgw.sh
+            $GITHUB_WORKSPACE/scripts/config_appgw.sh \
                 -g=${{ env.resource_group }} \
-                -r=${{ env.repo_name }} \
-                -d=$GITHUB_WORKSPACE
+                -z=${{ env.private_domain }} \
+                -d=${{ env.public_domain }}

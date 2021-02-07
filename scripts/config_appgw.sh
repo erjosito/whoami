@@ -14,6 +14,14 @@ do
                rg="${i#*=}"
                shift # past argument=value
                ;;
+          -d=*|--public-dns-zone-name=*)
+               public_domain="${i#*=}"
+               shift # past argument=value
+               ;;
+          -z=*|--private-dns-zone-name=*)
+               dns_zone_name="${i#*=}"
+               shift # past argument=value
+               ;;
      esac
 done
 set -- "${POSITIONAL[@]}" # restore positional parameters
@@ -39,4 +47,7 @@ else
 fi
 
 # Import certs from AKV
-az network application-gateway ssl-cert create --gateway-name "$appgw_name" -g "$rg" --keyvault-secret-id $????
+fqdn="${appgw_name}.${public_domain}"
+cert_name=${fqdn//[^a-zA-Z0-9]/}
+cert_sid=$(az keyvault certificate show -n "$cert_name" --vault-name "$akv_name" --query sid -o tsv)
+az network application-gateway ssl-cert create --gateway-name "$appgw_name" -g "$rg" --keyvault-secret-id "$cert_sid"
