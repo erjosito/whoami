@@ -70,8 +70,8 @@ fi
 
 # Verify if cert already exists in the Azure Key Vault
 fqdn="${appgw_name}.${public_domain}"
-cert_name=$(echo "$fqdn" | tr -d '\-.')
-cert_id=$(az keyvault certificate show -n "$cert_name" --vault-name "$akv_name" -g "$rg" --query id -o tsv)
+cert_name=$(echo "$fqdn" | sed 's/[^a-zA-Z0-9]//g')
+cert_id=$(az keyvault certificate show -n "$cert_name" --vault-name "$akv_name" --query id -o tsv)
 if [[ -n "$cert_id" ]]
 then
     echo "INFO: Certificate $cert_name already exists in Key Vault $akv_name"
