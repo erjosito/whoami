@@ -124,9 +124,9 @@ then
   sp_appid=$(az account show --query user.name -o tsv)
   sp_oid=$(az ad sp show --id "$sp_appid" --query objectId -o tsv)
   az keyvault set-policy -n "$akv_name" --object-id "$sp_oid" \
-          --secret-permissions get list set \
-          --certificate-permissions create import list setissuers update \
-          --key-permissions create get import sign verify 
+          --secret-permissions get list set update \
+          --certificate-permissions create import list get setissuers update \
+          --key-permissions create get import sign verify list
 else
   echo "INFO: AKV $akv_name found in resource group $rg"
 fi
