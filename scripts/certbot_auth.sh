@@ -1,6 +1,4 @@
 #!/bin/bash
-echo "Logging to Azure..."
-az login --identity
 az account show
 echo "Received values from certbot:"
 echo " - CERTBOT_VALIDATION: $CERTBOT_VALIDATION"

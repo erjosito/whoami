@@ -58,12 +58,23 @@ else
     exit 1
 fi
 
+# Verify there is an Application Gateway in the RG, generate the cert for the appgw's name
+appgw_name=$(az network application-gateway list -g $rg --query '[0].name' -o tsv)
+if [[ -n "$appgw_name" ]]
+then
+    echo "INFO: Azure Application Gateway $appgw_name found in resource group $rg"
+else
+    echo "ERROR: no Azure Application Gateway could be found in the resource group $rg"
+    exit 1
+fi
+
 # Create certificate (optionally using the staging server)
 current_dir=$(dirname "$0")
+fqdn="${appgw_name}.${public_domain}"
 if [[ "$staging" == "yes" ]]
 then
     echo "Generating cert in staging server..."
-    certbot certonly -n -d "$public_domain" --manual -m "$email_address" --preferred-challenges=dns \
+    certbot certonly -n -d "$fqdn" --manual -m "$email_address" --preferred-challenges=dns \
         --staging --manual-public-ip-logging-ok --agree-tos \
         --manual-auth-hook "${current_dir}/certbot_auth.sh" --manual-cleanup-hook "${current_dir}/certbot_cleanup.sh"
 else
@@ -75,15 +86,15 @@ fi
 # If debugging, show created certificates
 if [[ "$DEBUG" == "yes" ]]
 then
-    ls -al "/etc/letsencrypt/live/${public_domain}/"
-    cat "/etc/letsencrypt/live/${public_domain}/fullchain.pem"
-    cat "/etc/letsencrypt/live/${public_domain}/privkey.pem"
+    ls -al "/etc/letsencrypt/live/${fqdn}/"
+    cat "/etc/letsencrypt/live/${fqdn}/fullchain.pem"
+    cat "/etc/letsencrypt/live/${fqdn}/privkey.pem"
     cat "/var/log/letsencrypt/letsencrypt.log"
 fi
 # Variables to create AKV cert
-pem_file="/etc/letsencrypt/live/${public_domain}/fullchain.pem"
-key_file="/etc/letsencrypt/live/${public_domain}/privkey.pem"
-cert_name=$(echo "$public_domain" | tr -d '.')
+pem_file="/etc/letsencrypt/live/${fqdn}/fullchain.pem"
+key_file="/etc/letsencrypt/live/${fqdn}/privkey.pem"
+cert_name=$(echo "$fqdn" | tr -d '-.')
 key_password=$(tr -dc a-zA-z0-9 </dev/urandom 2>dev/null| head -c 12)
 # Combine PEM and key in one pfx file (pkcs#12)
 pfx_file=".${pem_file}.pfx"

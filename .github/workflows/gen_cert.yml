@@ -39,6 +39,7 @@ jobs:
             chmod +x $GITHUB_WORKSPACE/scripts/certbot_auth.sh
             chmod +x $GITHUB_WORKSPACE/scripts/certbot_cleanup.sh
             $GITHUB_WORKSPACE/scripts/certbot_generate.sh \
+                --debug=yes \
                 -g=${{ env.resource_group }} \
                 -e=${{ env.cert_email }} \
                 -d=${{ env.cert_domain }} \
