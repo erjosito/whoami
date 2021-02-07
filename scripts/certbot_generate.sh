@@ -95,9 +95,9 @@ fi
 pem_file="/etc/letsencrypt/live/${fqdn}/fullchain.pem"
 key_file="/etc/letsencrypt/live/${fqdn}/privkey.pem"
 cert_name=$(echo "$fqdn" | tr -d '\-.')
-key_password=$(tr -dc a-zA-z0-9 </dev/urandom 2>dev/null| head -c 12)
+key_password=$(tr -dc a-zA-z0-9 </dev/urandom 2>/dev/null| head -c 12)
 # Combine PEM and key in one pfx file (pkcs#12)
-pfx_file=".${pem_file}.pfx"
+pfx_file="${pem_file}.pfx"
 openssl pkcs12 -export -in "$pem_file" -inkey "$key_file" -out "$pfx_file" -passin "pass:$key_password" -passout "pass:$key_password"
 # Add certificate to AKV
 az keyvault certificate import --vault-name "$akv_name" -n "$cert_name" -f "$pfx_file"
