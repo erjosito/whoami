@@ -6,6 +6,7 @@ on:
 
 env:
   resource_group: whoami
+  location: westeurope
 
 jobs:
   create_infra:
@@ -37,4 +38,4 @@ jobs:
           azcliversion: latest
           inlineScript: |
             chmod +x $GITHUB_WORKSPACE/scripts/init_rg.sh
-            $GITHUB_WORKSPACE/init_rg.sh -g=acilab -l=westeurope
+            $GITHUB_WORKSPACE/scripts/init_rg.sh -g=${{ env.resource_group }} -l=${{ env.location }}
