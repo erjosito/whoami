@@ -130,13 +130,14 @@ fi
 if [[ -n "$AZURE_CREDENTIALS" ]]
 then
     echo "$AZURE_CREDENTIALS"  ########################################## Remove this!
+    # jq does not seem to work, it looks like github unformats the JSON into something else
     # sp_appid=$(jq -r '.clientId' <<<"$AZURE_CREDENTIALS")
     # sp_password=$(jq -r '.clientSecret' <<<"$AZURE_CREDENTIALS")
     # sp_tenant=$(jq -r '.tenantId' <<<"$AZURE_CREDENTIALS")
     sp_appid=$(echo "$AZURE_CREDENTIALS" | grep clientId | cut -d ' ' -f 4 | cut -d ',' -f 1)
     sp_password=$(echo "$AZURE_CREDENTIALS" | grep clientSecret | cut -d ' ' -f 4 | cut -d ',' -f 1)
     sp_tenant=$(echo "$AZURE_CREDENTIALS" | grep tenantId | cut -d ' ' -f 4 | cut -d ',' -f 1)
-    echo "Extracted application ID and password for service principal $sp_appid in tenant $sp_tenant"
+    echo "Extracted application ID and password for service principal $sp_appid in tenant $sp_tenant, password $sp_password"
 else
     echo "ERROR: AZURE_CREDENTIALS environment variable not found"
     exit 1
@@ -279,7 +280,7 @@ function deploy_aci() {
           mountPath: /etc/nginx
     - name: web
       properties:
-        image: ${acr_name}.azurecr.io/azurefriday/web:1.0
+        image: ${acr_name}.azurecr.io/${repo_name}/web:1.0
         environmentVariables:
         - name: API_URL
           value: 127.0.0.1:8080
