@@ -38,4 +38,4 @@ jobs:
           azcliversion: latest
           inlineScript: |
             chmod +x $GITHUB_WORKSPACE/scripts/init_rg.sh
-            $GITHUB_WORKSPACE/scripts/init_rg.sh -g=${{ env.resource_group }} -l=${{ env.location }}
+            $GITHUB_WORKSPACE/scripts/init_rg.sh -g=${{ env.resource_group }} -l=${{ env.location }} -u=${{ secrets.SQL_USERNAME }} pu=${{ secrets.SQL_PASSWORD }}
