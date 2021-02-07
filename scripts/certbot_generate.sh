@@ -59,7 +59,7 @@ else
 fi
 
 # Verify there is an Application Gateway in the RG, generate the cert for the appgw's name
-appgw_name=$(az network application-gateway list -g $rg --query '[0].name' -o tsv)
+appgw_name=$(az network application-gateway list -g "$rg" --query '[0].name' -o tsv)
 if [[ -n "$appgw_name" ]]
 then
     echo "INFO: Azure Application Gateway $appgw_name found in resource group $rg"
@@ -94,7 +94,7 @@ fi
 # Variables to create AKV cert
 pem_file="/etc/letsencrypt/live/${fqdn}/fullchain.pem"
 key_file="/etc/letsencrypt/live/${fqdn}/privkey.pem"
-cert_name=$(echo "$fqdn" | tr -d '-.')
+cert_name=$(echo "$fqdn" | tr -d '\-.')
 key_password=$(tr -dc a-zA-z0-9 </dev/urandom 2>dev/null| head -c 12)
 # Combine PEM and key in one pfx file (pkcs#12)
 pfx_file=".${pem_file}.pfx"
