@@ -36,6 +36,8 @@ jobs:
             mkdir /etc/letsencrypt
             az account show
             chmod +x $GITHUB_WORKSPACE/scripts/certbot_generate.sh
+            chmod +x $GITHUB_WORKSPACE/scripts/certbot_auth.sh
+            chmod +x $GITHUB_WORKSPACE/scripts/certbot_cleanup.sh
             $GITHUB_WORKSPACE/scripts/certbot_generate.sh \
                 -g=${{ env.resource_group }} \
                 -e=${{ env.cert_email }} \
