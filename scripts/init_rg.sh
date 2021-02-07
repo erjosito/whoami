@@ -137,32 +137,39 @@ if [[ -z "$sql_server_name" ]]
 then
   echo "INFO: Creating new Azure SQL Database..."
   sql_server_name=sqlserver-${unique_id}
-  az sql server create -n $sql_server_name -g $rg -l $location --admin-user $sql_username --admin-password $sql_password
-  sql_server_fqdn=$(az sql server show -n $sql_server_name -g $rg -o tsv --query fullyQualifiedDomainName)
-  az sql db create -n $sql_db_name -s $sql_server_name -g $rg -e Basic -c 5 --no-wait
-  # Create SQL Server private endpoint
-  sql_endpoint_name=sqlep
-  sql_server_id=$(az sql server show -n $sql_server_name -g $rg -o tsv --query id)
-  az network vnet subnet update -n $sql_subnet_name -g $rg --vnet-name $vnet_name --disable-private-endpoint-network-policies true
-  az network private-endpoint create -n $sql_endpoint_name -g $rg \
-    --vnet-name $vnet_name --subnet $sql_subnet_name \
-    --private-connection-resource-id $sql_server_id --group-id sqlServer --connection-name sqlConnection
-  # Get endpoint's private IP address
-  sql_nic_id=$(az network private-endpoint show -n $sql_endpoint_name -g $rg --query 'networkInterfaces[0].id' -o tsv)
-  sql_endpoint_ip=$(az network nic show --ids $sql_nic_id --query 'ipConfigurations[0].privateIpAddress' -o tsv) && echo $sql_endpoint_ip
-  # Create Azure private DNS zone for private link and required A record
-  plink_dns_zone_name=privatelink.database.windows.net
-  az network private-dns zone create -n $plink_dns_zone_name -g $rg 
-  az network private-dns link vnet create -g $rg -z $plink_dns_zone_name -n privatelink --virtual-network $vnet_name --registration-enabled false
-  az network private-dns record-set a create -n $sql_server_name -z $plink_dns_zone_name -g $rg
-  az network private-dns record-set a add-record --record-set-name $sql_server_name -z $plink_dns_zone_name -g $rg -a $sql_endpoint_ip
+  echo "DEBUG: SQL Server $sql_server_name, Username $sql_username, Password $sql_password"
+  az sql server create -n "$sql_server_name" -g "$rg" -l "$location" --admin-user "$sql_username" --admin-password "$sql_password"
+  sql_server_fqdn=$(az sql server show -n "$sql_server_name" -g "$rg" -o tsv --query fullyQualifiedDomainName)
+  if [[ -n "$sql_server_fqdn" ]]
+  then
+    az sql db create -n "$sql_db_name" -s "$sql_server_name" -g "$rg" -e Basic -c 5 --no-wait
+    # Create SQL Server private endpoint
+    sql_endpoint_name=sqlep
+    sql_server_id=$(az sql server show -n "$sql_server_name" -g "$rg" -o tsv --query id)
+    az network vnet subnet update -n "$sql_subnet_name" -g "$rg" --vnet-name "$vnet_name" --disable-private-endpoint-network-policies true
+    az network private-endpoint create -n "$sql_endpoint_name" -g "$rg" \
+      --vnet-name "$vnet_name" --subnet "$sql_subnet_name" \
+      --private-connection-resource-id "$sql_server_id" --group-id sqlServer --connection-name sqlConnection
+    # Get endpoint's private IP address
+    sql_nic_id=$(az network private-endpoint show -n "$sql_endpoint_name" -g "$rg" --query 'networkInterfaces[0].id' -o tsv)
+    sql_endpoint_ip=$(az network nic show --ids "$sql_nic_id" --query 'ipConfigurations[0].privateIpAddress' -o tsv) && echo "$sql_endpoint_ip"
+    # Create Azure private DNS zone for private link and required A record
+    plink_dns_zone_name=privatelink.database.windows.net
+    az network private-dns zone create -n "$plink_dns_zone_name" -g "$rg" 
+    az network private-dns link vnet create -g "$rg" -z $plink_dns_zone_name -n privatelink --virtual-network "$vnet_name" --registration-enabled false
+    az network private-dns record-set a create -n "$sql_server_name" -z $plink_dns_zone_name -g "$rg"
+    az network private-dns record-set a add-record --record-set-name "$sql_server_name" -z "$plink_dns_zone_name" -g "$rg" -a "$sql_endpoint_ip"
+    # Note: linking the private zone and the private link would be easier and less error-prone
+  else
+    echo "ERROR: SQL Server $sql_server_name could not be created"
+  fi
 else
   echo "INFO: Azure SQL Server $sql_server_name already exists in resource group $rg"
 fi
 
 # Get network profile ID
 # Network profiles are created when a container is created, hence we create and delete a dummy container to the vnet first
-vnet_id=$(az network vnet show -n "$vnet_name" -g "$rg" --query id -o tsv)
+vnet_id=$(az network vnet show -n "$vnet_name" -g "$rg" --query id -o tsv 2>/dev/null)
 subnet_id=$(az network vnet subnet show -n "$aci_subnet_name" --vnet-name "$vnet_name" -g "$rg" --query id -o tsv) && echo "$subnet_id"
 nw_profile_id=''
 while [[ -z "$nw_profile_id" ]]
@@ -208,10 +215,11 @@ else
 fi
 
 # Creates application gateway with dummy rule
-appgw_id=$(az network application-gateway show -n "$appgw_name" -g "$rg" --query id -o tsv)
+appgw_id=$(az network application-gateway show -n "$appgw_name" -g "$rg" --query id -o tsv 2>/dev/null)
 if [[ -z "$appgw_id" ]]
 then
   echo "INFO: Creating new application gateway..."
+  appgw_pip_dns="${appgw_name}-${unique_id}"
   allocation_method=Static
   az network public-ip create -g "$rg" -n "$appgw_pip_name" --sku Standard --allocation-method $allocation_method --dns-name $appgw_pip_dns
   appgw_fqdn=$(az network public-ip show -g "$rg" -n "$appgw_pip_name" --query dnsSettings.fqdn -o tsv)

@@ -9,7 +9,7 @@ env:
   repo_name: acilab
 
 jobs:
-  create_infra:
+  build_images:
     runs-on: ubuntu-latest
     steps:
       # checkout branch
