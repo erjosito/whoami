@@ -7,8 +7,8 @@ on:
 env:
   resource_group: whoami
   location: westeurope
-  public_domain: cloudtrooper.net
-  private_domain: contoso.com
+  public_domain: "cloudtrooper.net"
+  private_domain: "contoso.com"
 
 jobs:
   create_infra:
@@ -46,5 +46,5 @@ jobs:
                 -u=${{ secrets.SQL_USERNAME }} \
                 -p=${{ secrets.SQL_PASSWORD }} \
                 -z=${{ env.private_domain }} \
-                -p=${{ env.public_domain }}
+                -d=${{ env.public_domain }}
 
