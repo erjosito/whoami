@@ -50,4 +50,12 @@ fi
 fqdn="${appgw_name}.${public_domain}"
 cert_name=${fqdn//[^a-zA-Z0-9]/}
 cert_sid=$(az keyvault certificate show -n "$cert_name" --vault-name "$akv_name" --query sid -o tsv)
-az network application-gateway ssl-cert create --gateway-name "$appgw_name" -g "$rg" --keyvault-secret-id "$cert_sid"
+echo "Adding SSL certificate to Application Gateway from Key Vault ($cert_sid)..."
+az network application-gateway ssl-cert create -n "$cert_name" --gateway-name "$appgw_name" -g "$rg" --keyvault-secret-id "$cert_sid"
+
+# Import root cert for LetsEncrypt
+current_dir=$(dirname "$0")
+base_dir=$(dirname "$current_dir")
+root_cert_file="${base_dir}/letsencrypt/isrgrootx1.crt"
+echo "Adding LetsEncrypt root cert to Application Gateway..."
+az network application-gateway root-cert create -g "$rg" --gateway-name "$appgw_name" --name letsencrypt --cert-file "$root_cert_file"
