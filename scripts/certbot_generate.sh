@@ -68,9 +68,19 @@ else
     exit 1
 fi
 
+# Verify if cert already exists in the Azure Key Vault
+fqdn="${appgw_name}.${public_domain}"
+cert_name=$(echo "$fqdn" | tr -d '\-.')
+cert_id=$(az keyvault certificate show -n "$cert_name" --vault-name "$akv_name" -g "$rg" --query id -o tsv)
+if [[ -n "$cert_id" ]]
+then
+    echo "INFO: Certificate $cert_name already exists in Key Vault $akv_name"
+else
+    echo "INFO: Certificate $cert_name does not exist in Key Vault $akv_name"
+fi
+
 # Create certificate (optionally using the staging server)
 current_dir=$(dirname "$0")
-fqdn="${appgw_name}.${public_domain}"
 if [[ "$staging" == "yes" ]]
 then
     echo "Generating cert in staging server..."
@@ -94,13 +104,17 @@ fi
 # Variables to create AKV cert
 pem_file="/etc/letsencrypt/live/${fqdn}/fullchain.pem"
 key_file="/etc/letsencrypt/live/${fqdn}/privkey.pem"
-cert_name=$(echo "$fqdn" | tr -d '\-.')
-key_password=$(tr -dc a-zA-z0-9 </dev/urandom 2>/dev/null| head -c 12)
+key_passphrase=$(tr -dc a-zA-z0-9 </dev/urandom 2>/dev/null| head -c 12)
 # Combine PEM and key in one pfx file (pkcs#12)
+echo "Generating pfx file with cert chain and private key..."
 pfx_file="${pem_file}.pfx"
-openssl pkcs12 -export -in "$pem_file" -inkey "$key_file" -out "$pfx_file" -passin "pass:$key_password" -passout "pass:$key_password"
+openssl pkcs12 -export -in "$pem_file" -inkey "$key_file" -out "$pfx_file" -passin "pass:$key_passphrase" -passout "pass:$key_passphrase"
+openssl pkcs12 -info -in "$pfx_file" -passin "pass:$key_passphrase"
 # Add certificate to AKV
+echo "Importing certificates into Azure Key Vault..."
 az keyvault certificate import --vault-name "$akv_name" -n "$cert_name" -f "$pfx_file"
 # Add key phrase to AKV
 akv_secret_name="${cert_name}passphrase"
-az keyvault secret set -n "$akv_secret_name" --value "$key_password" --vault-name "$akv_name"
+akv_secret_name=$(echo "$akv_secret_name" | sed 's/[^a-zA-Z0-9]//g')
+echo "Adding certificate key passphrase to Azure Key Vault $akv_name as secret $akv_secret_name"
+az keyvault secret set -n "$akv_secret_name" --value "$key_passphrase" --vault-name "$akv_name"
