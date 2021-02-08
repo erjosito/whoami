@@ -56,7 +56,7 @@ echo "Adding SSL certificate to Application Gateway from Key Vault..."
 pfx_file="/tmp/ssl.pfx"
 az keyvault secret download -n "$cert_name" --vault-name "$akv_name" --encoding base64 --file "$pfx_file"
 cert_passphrase=''
-az network application-gateway ssl-cert create -g "$rg" --gateway-name "$appgw_name" -n contoso --cert-file "$pfx_file" --cert-password "$cert_passphrase" -o none
+az network application-gateway ssl-cert create -g "$rg" --gateway-name "$appgw_name" -n "$cert_name" --cert-file "$pfx_file" --cert-password "$cert_passphrase" -o none
 
 # Import root cert for LetsEncrypt
 current_dir=$(dirname "$0")
@@ -64,3 +64,32 @@ base_dir=$(dirname "$current_dir")
 root_cert_file="${base_dir}/letsencrypt/isrgrootx1.crt"
 echo "Adding LetsEncrypt root cert to Application Gateway..."
 az network application-gateway root-cert create -g "$rg" --gateway-name "$appgw_name" --name letsencrypt --cert-file "$root_cert_file" -o none
+
+# HTTP Settings and probe
+echo "Creating probe and HTTP settings..."
+az network application-gateway probe create -g "$rg" --gateway-name "$appgw_name" \
+  --name aciprobe --protocol Https --host-name-from-http-settings --match-status-codes 200-399 --port 443 --path /api/healthcheck
+az network application-gateway http-settings create -g "$rg" --gateway-name "$appgw_name" --port 443 \
+  --name acisettings --protocol https --host-name-from-backend-pool --probe aciprobe --root-certs letsencrypt
+
+# Create config for production container
+echo "Creating config for production ACIs..."
+az network application-gateway address-pool create -n aciprod -g "$rg" --gateway-name "$appgw_name" \
+  --servers "api-prod-01.${dns_zone_name}"
+frontend_name=$(az network application-gateway frontend-ip list -g "$rg" --gateway-name "$appgw_name" --query '[0].name' -o tsv)
+az network application-gateway frontend-port create -n aciprod -g "$rg" --gateway-name "$appgw_name" --port 443
+az network application-gateway http-listener create -n aciprod -g "$rg" --gateway-name "$appgw_name" \
+  --frontend-port aciprod --frontend-ip "$frontend_name" --ssl-cert "$cert_name"
+az network application-gateway rule create -g "$rg" --gateway-name "$appgw_name" -n aciprod \
+  --http-listener aciprod --rule-type Basic --address-pool aciprod --http-settings acisettings
+
+# Create config for dashboard
+echo "Creating config for dashboard..."
+dash_ip=$(az container show -n dash -g "$rg" --query 'ipAddress.ip' -o tsv) && echo "$dash_ip"
+az network application-gateway address-pool create -n dash -g "$rg" --gateway-name "$appgw_name" --servers "$dash_ip"
+frontend_name=$(az network application-gateway frontend-ip list -g "$rg" --gateway-name "$appgw_name" --query '[0].name' -o tsv)
+az network application-gateway frontend-port create -n dash -g "$rg" --gateway-name "$appgw_name" --port 8050
+az network application-gateway http-listener create -n dash -g "$rg" --gateway-name "$appgw_name" \
+  --frontend-port dash --frontend-ip "$frontend_name" --ssl-cert "$cert_name"
+az network application-gateway rule create -g "$rg" --gateway-name "$appgw_name" -n dash \
+  --http-listener dash --rule-type Basic --address-pool dash --http-settings acisettings
