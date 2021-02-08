@@ -49,7 +49,7 @@ fi
 # Import certs from AKV
 fqdn="*.${public_domain}"
 cert_name=${fqdn//[^a-zA-Z0-9]/}
-cert_id=$(az network application-gateway ssl-cert show -n "$cert_name" --gateway-name "$appgw_name" --query id -o tsv)
+cert_id=$(az network application-gateway ssl-cert show -n "$cert_name" --gateway-name "$appgw_name" -g "$rg" --query id -o tsv)
 if [[ -z "$cert_id" ]]
 then
     echo "Adding SSL certificate to Application Gateway from Key Vault..."
@@ -65,7 +65,7 @@ else
 fi
 
 # Import root cert for LetsEncrypt
-root_cert_id=$(az network application-gateway ssl-cert show -n letsencrypt --gateway-name "$appgw_name" --query id -o tsv)
+root_cert_id=$(az network application-gateway ssl-cert show -n letsencrypt --gateway-name "$appgw_name" -g "$rg" --query id -o tsv)
 if [[ -z "$root_cert_id" ]]
 then
     current_dir=$(dirname "$0")
@@ -78,7 +78,7 @@ else
 fi
 
 # Check if there is already a rule for aciprod
-pool_id=$(az network application-gateway address-pool show -n aciprod --gateway-name "$appgw_name" --query id -o tsv)
+pool_id=$(az network application-gateway address-pool show -n aciprod --gateway-name "$appgw_name" -g "$rg" --query id -o tsv)
 if [[ -z "$pool_id" ]]
 then
     # HTTP Settings and probe
@@ -103,7 +103,7 @@ else
 fi
 
 # Check if there is already a rule for the dashboard
-pool_id=$(az network application-gateway address-pool show -n dash --gateway-name "$appgw_name" --query id -o tsv)
+pool_id=$(az network application-gateway address-pool show -n dash --gateway-name "$appgw_name" -g "$rg" --query id -o tsv)
 if [[ -z "$pool_id" ]]
 then
     # Create config for dashboard
@@ -125,7 +125,7 @@ else
 fi
 
 # Check if the dummy config is still there
-pool_id=$(az network application-gateway address-pool show -n appGatewayBackendPool --gateway-name "$appgw_name" --query id -o tsv)
+pool_id=$(az network application-gateway address-pool show -n appGatewayBackendPool --gateway-name "$appgw_name" -g "$rg" --query id -o tsv)
 if [[ -n "$pool_id" ]]
 then
     # Cleanup initial dummy config

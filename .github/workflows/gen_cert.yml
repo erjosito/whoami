@@ -36,7 +36,6 @@ jobs:
             pip3 install pip --upgrade
             pip3 install certbot
             mkdir /etc/letsencrypt
-            az account show
             chmod +x $GITHUB_WORKSPACE/scripts/certbot_generate.sh
             chmod +x $GITHUB_WORKSPACE/scripts/certbot_auth.sh
             chmod +x $GITHUB_WORKSPACE/scripts/certbot_cleanup.sh

@@ -346,6 +346,7 @@ echo "Finding out dashboard's IP address..."
 dash_ip=$(az container show -n dash -g "$rg" --query 'ipAddress.ip' -o tsv) && echo "$dash_ip"
 
 # Create main container (the function creates the container in --no-wait)
+echo "Creating API container..."
 prod_image="${acr_name}.azurecr.io/${repo_name}/api:1.0"
 deploy_aci api-prod-01 "$prod_image"
 
