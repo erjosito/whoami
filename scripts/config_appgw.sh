@@ -77,41 +77,63 @@ else
     echo "LetsEncrypt root certificate already present in Application Gateway $appgw_name"
 fi
 
-# HTTP Settings and probe
-echo "Creating probe and HTTP settings..."
-az network application-gateway probe create -g "$rg" --gateway-name "$appgw_name" \
-  --name aciprobe --protocol Https --host-name-from-http-settings --match-status-codes 200-399 --port 443 --path /api/healthcheck -o none
-az network application-gateway http-settings create -g "$rg" --gateway-name "$appgw_name" --port 443 \
-  --name acisettings --protocol https --host-name-from-backend-pool --probe aciprobe --root-certs letsencrypt -o none
+# Check if there is already a rule for aciprod
+pool_id=$(az network application-gateway address-pool show -n aciprod --gateway-name "$appgw_name" --query id -o tsv)
+if [[ -z "$pool_id" ]]
+then
+    # HTTP Settings and probe
+    echo "Creating probe and HTTP settings..."
+    az network application-gateway probe create -g "$rg" --gateway-name "$appgw_name" \
+    --name aciprobe --protocol Https --host-name-from-http-settings --match-status-codes 200-399 --port 443 --path /api/healthcheck -o none
+    az network application-gateway http-settings create -g "$rg" --gateway-name "$appgw_name" --port 443 \
+    --name acisettings --protocol https --host-name-from-backend-pool --probe aciprobe --root-certs letsencrypt -o none
 
-# Create config for production container
-echo "Creating config for production ACIs..."
-az network application-gateway address-pool create -n aciprod -g "$rg" --gateway-name "$appgw_name" \
-  --servers "api-prod-01.${dns_zone_name}" -o none
-frontend_name=$(az network application-gateway frontend-ip list -g "$rg" --gateway-name "$appgw_name" --query '[0].name' -o tsv)
-az network application-gateway frontend-port create -n aciprod -g "$rg" --gateway-name "$appgw_name" --port 443 -o none
-az network application-gateway http-listener create -n aciprod -g "$rg" --gateway-name "$appgw_name" \
-  --frontend-port aciprod --frontend-ip "$frontend_name" --ssl-cert "$cert_name" -o none
-az network application-gateway rule create -g "$rg" --gateway-name "$appgw_name" -n aciprod \
-  --http-listener aciprod --rule-type Basic --address-pool aciprod --http-settings acisettings -o none
+    # Create config for production container
+    echo "Creating config for production ACIs..."
+    az network application-gateway address-pool create -n aciprod -g "$rg" --gateway-name "$appgw_name" \
+    --servers "api-prod-01.${dns_zone_name}" -o none
+    frontend_name=$(az network application-gateway frontend-ip list -g "$rg" --gateway-name "$appgw_name" --query '[0].name' -o tsv)
+    az network application-gateway frontend-port create -n aciprod -g "$rg" --gateway-name "$appgw_name" --port 443 -o none
+    az network application-gateway http-listener create -n aciprod -g "$rg" --gateway-name "$appgw_name" \
+    --frontend-port aciprod --frontend-ip "$frontend_name" --ssl-cert "$cert_name" -o none
+    az network application-gateway rule create -g "$rg" --gateway-name "$appgw_name" -n aciprod \
+    --http-listener aciprod --rule-type Basic --address-pool aciprod --http-settings acisettings -o none
+else
+    echo "Configurationg for production cluster already found in App GW $appgw_name"
+fi
 
-# Create config for dashboard
-echo "Creating config for dashboard..."
-dash_ip=$(az container show -n dash -g "$rg" --query 'ipAddress.ip' -o tsv) && echo "$dash_ip"
-az network application-gateway probe create -g "$rg" --gateway-name "$appgw_name" \
-  --name dash --protocol Http --host-name-from-http-settings --match-status-codes 200-399 --port 8050 --path / -o none
-az network application-gateway http-settings create -g "$rg" --gateway-name "$appgw_name" --port 443 \
-  --name dash --protocol http --host-name-from-backend-pool --probe dash -o none
-az network application-gateway address-pool create -n dash -g "$rg" --gateway-name "$appgw_name" --servers "$dash_ip" -o none
-frontend_name=$(az network application-gateway frontend-ip list -g "$rg" --gateway-name "$appgw_name" --query '[0].name' -o tsv)
-az network application-gateway frontend-port create -n dash -g "$rg" --gateway-name "$appgw_name" --port 8050 -o none
-az network application-gateway http-listener create -n dash -g "$rg" --gateway-name "$appgw_name" \
-  --frontend-port dash --frontend-ip "$frontend_name" --ssl-cert "$cert_name" -o none
-az network application-gateway rule create -g "$rg" --gateway-name "$appgw_name" -n dash \
-  --http-listener dash --rule-type Basic --address-pool dash --http-settings dash -o none
+# Check if there is already a rule for the dashboard
+pool_id=$(az network application-gateway address-pool show -n dash --gateway-name "$appgw_name" --query id -o tsv)
+if [[ -z "$pool_id" ]]
+then
+    # Create config for dashboard
+    echo "Creating config for dashboard..."
+    dash_ip=$(az container show -n dash -g "$rg" --query 'ipAddress.ip' -o tsv) && echo "$dash_ip"
+    az network application-gateway probe create -g "$rg" --gateway-name "$appgw_name" \
+    --name dash --protocol Http --host-name-from-http-settings --match-status-codes 200-399 --port 8050 --path / -o none
+    az network application-gateway http-settings create -g "$rg" --gateway-name "$appgw_name" --port 443 \
+    --name dash --protocol http --host-name-from-backend-pool --probe dash -o none
+    az network application-gateway address-pool create -n dash -g "$rg" --gateway-name "$appgw_name" --servers "$dash_ip" -o none
+    frontend_name=$(az network application-gateway frontend-ip list -g "$rg" --gateway-name "$appgw_name" --query '[0].name' -o tsv)
+    az network application-gateway frontend-port create -n dash -g "$rg" --gateway-name "$appgw_name" --port 8050 -o none
+    az network application-gateway http-listener create -n dash -g "$rg" --gateway-name "$appgw_name" \
+    --frontend-port dash --frontend-ip "$frontend_name" --ssl-cert "$cert_name" -o none
+    az network application-gateway rule create -g "$rg" --gateway-name "$appgw_name" -n dash \
+    --http-listener dash --rule-type Basic --address-pool dash --http-settings dash -o none
+else
+    echo "Configurationg for the dashboard already found in App GW $appgw_name"
+fi
 
-# Cleanup initial dummy config
-az network application-gateway rule delete -g "$rg" --gateway-name "$appgw_name" -n rule1 -o none
-az network application-gateway address-pool delete -g "$rg" --gateway-name "$appgw_name" -n appGatewayBackendPool -o none
-az network application-gateway http-settings delete -g "$rg" --gateway-name "$appgw_name" -n appGatewayBackendHttpSettings -o none
-az network application-gateway http-listener delete -g "$rg" --gateway-name "$appgw_name" -n appGatewayHttpListener -o none
+# Check if the dummy config is still there
+pool_id=$(az network application-gateway address-pool show -n appGatewayBackendPool --gateway-name "$appgw_name" --query id -o tsv)
+if [[ -n "$pool_id" ]]
+then
+    # Cleanup initial dummy config
+    echo "Cleaning up intialization config for the Application Gateway $appgw_name..."
+    az network application-gateway rule delete -g "$rg" --gateway-name "$appgw_name" -n rule1 -o none
+    az network application-gateway address-pool delete -g "$rg" --gateway-name "$appgw_name" -n appGatewayBackendPool -o none
+    az network application-gateway http-settings delete -g "$rg" --gateway-name "$appgw_name" -n appGatewayBackendHttpSettings -o none
+    az network application-gateway http-listener delete -g "$rg" --gateway-name "$appgw_name" -n appGatewayHttpListener -o none
+else
+    echo "Initialization configurationg for the App GW $appgw_name had already been deleted"
+fi
