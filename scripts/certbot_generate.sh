@@ -103,12 +103,12 @@ fi
 current_dir=$(dirname "$0")
 if [[ "$staging" == "yes" ]]
 then
-    echo "Generating cert in staging server..."
+    echo "Generating certificate in staging server for $fqdn..."
     certbot certonly -n -d "$fqdn" --manual -m "$email_address" --preferred-challenges=dns \
         --staging --manual-public-ip-logging-ok --agree-tos \
         --manual-auth-hook "${current_dir}/certbot_auth.sh" --manual-cleanup-hook "${current_dir}/certbot_cleanup.sh"
 else
-    echo "Generating cert in production server..."
+    echo "Generating certificate in production server for $fqdn..."
     certbot certonly -n -d "$fqdn" --manual -m "$email_address" --preferred-challenges=dns \
         --manual-public-ip-logging-ok --agree-tos \
         --manual-auth-hook "${current_dir}/certbot_auth.sh" --manual-cleanup-hook "${current_dir}/certbot_cleanup.sh"

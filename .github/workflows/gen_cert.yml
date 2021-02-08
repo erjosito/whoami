@@ -10,7 +10,7 @@ env:
   cert_domain: "cloudtrooper.net"
   cert_staging: yes
   cert_key_passphrase: no
-  cert_force_creation: yes
+  cert_force_creation: no
 
 jobs:
   generate_certs:
