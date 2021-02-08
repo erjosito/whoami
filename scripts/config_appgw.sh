@@ -49,21 +49,33 @@ fi
 # Import certs from AKV
 fqdn="*.${public_domain}"
 cert_name=${fqdn//[^a-zA-Z0-9]/}
-echo "Adding SSL certificate to Application Gateway from Key Vault..."
-# The --keyvault-secret-id parameter doesnt seem to be working in Github's action CLI version (Feb 2021)
-# cert_sid=$(az keyvault certificate show -n "$cert_name" --vault-name "$akv_name" --query sid -o tsv)
-# az network application-gateway ssl-cert create -n "$cert_name" --gateway-name "$appgw_name" -g "$rg" --keyvault-secret-id "$cert_sid"
-pfx_file="/tmp/ssl.pfx"
-az keyvault secret download -n "$cert_name" --vault-name "$akv_name" --encoding base64 --file "$pfx_file"
-cert_passphrase=''
-az network application-gateway ssl-cert create -g "$rg" --gateway-name "$appgw_name" -n "$cert_name" --cert-file "$pfx_file" --cert-password "$cert_passphrase" -o none
+cert_id=$(az network application-gateway ssl-cert show -n "$cert_name" --gateway-name "$appgw_name" --query id -o tsv)
+if [[ -z "$cert_id" ]]
+then
+    echo "Adding SSL certificate to Application Gateway from Key Vault..."
+    # The --keyvault-secret-id parameter doesnt seem to be working in Github's action CLI version (Feb 2021)
+    # cert_sid=$(az keyvault certificate show -n "$cert_name" --vault-name "$akv_name" --query sid -o tsv)
+    # az network application-gateway ssl-cert create -n "$cert_name" --gateway-name "$appgw_name" -g "$rg" --keyvault-secret-id "$cert_sid"
+    pfx_file="/tmp/ssl.pfx"
+    az keyvault secret download -n "$cert_name" --vault-name "$akv_name" --encoding base64 --file "$pfx_file"
+    cert_passphrase=''
+    az network application-gateway ssl-cert create -g "$rg" --gateway-name "$appgw_name" -n "$cert_name" --cert-file "$pfx_file" --cert-password "$cert_passphrase" -o none
+else
+    echo "Cert $cert_name already exists in application gateway $appgw_name"
+fi
 
 # Import root cert for LetsEncrypt
-current_dir=$(dirname "$0")
-base_dir=$(dirname "$current_dir")
-root_cert_file="${base_dir}/letsencrypt/isrgrootx1.crt"
-echo "Adding LetsEncrypt root cert to Application Gateway..."
-az network application-gateway root-cert create -g "$rg" --gateway-name "$appgw_name" --name letsencrypt --cert-file "$root_cert_file" -o none
+root_cert_id=$(az network application-gateway ssl-cert show -n letsencrypt --gateway-name "$appgw_name" --query id -o tsv)
+if [[ -z "$root_cert_id" ]]
+then
+    current_dir=$(dirname "$0")
+    base_dir=$(dirname "$current_dir")
+    root_cert_file="${base_dir}/letsencrypt/isrgrootx1.crt"
+    echo "Adding LetsEncrypt root cert to Application Gateway..."
+    az network application-gateway root-cert create -g "$rg" --gateway-name "$appgw_name" --name letsencrypt --cert-file "$root_cert_file" -o none
+else
+    echo "LetsEncrypt root certificate already present in Application Gateway $appgw_name"
+fi
 
 # HTTP Settings and probe
 echo "Creating probe and HTTP settings..."
