@@ -123,7 +123,9 @@ then
 fi
 # Variables to create AKV cert
 pem_file="/etc/letsencrypt/live/${fqdn}/fullchain.pem"
+pem_file="${pem_file//\*./}"
 key_file="/etc/letsencrypt/live/${fqdn}/privkey.pem"
+key_file="${key_file//\*./}"
 if [[ "$use_key_passphrase" == "yes" ]]
 then
     key_passphrase=$(tr -dc a-zA-Z0-9 </dev/urandom 2>/dev/null| head -c 12)
