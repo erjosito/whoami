@@ -154,5 +154,9 @@ then
     az keyvault secret set -n "$akv_secret_name" --value "$key_passphrase" --vault-name "$akv_name"
 else
     echo "Making sure there is no key passphrase secret in Azure Key Vault $akv_name as secret $akv_secret_name"
-    az keyvault secret delete -n "$akv_secret_name" --vault-name "$akv_name"
+    secret_id=$(az keyvault secret show -n "$akv_secret_name" --vault-name "$akv_name" --query id -o tsv 2>/dev/null)
+    if [[ -n "$secret_id" ]]
+    then
+        az keyvault secret delete -n "$akv_secret_name" --vault-name "$akv_name" || true
+    fi
 fi
