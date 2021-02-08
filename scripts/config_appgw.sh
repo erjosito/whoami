@@ -47,7 +47,7 @@ else
 fi
 
 # Import certs from AKV
-fqdn="${appgw_name}.${public_domain}"
+fqdn="*.${public_domain}"
 cert_name=${fqdn//[^a-zA-Z0-9]/}
 echo "Adding SSL certificate to Application Gateway from Key Vault..."
 # The --keyvault-secret-id parameter doesnt seem to be working in Github's action CLI version (Feb 2021)
@@ -68,28 +68,38 @@ az network application-gateway root-cert create -g "$rg" --gateway-name "$appgw_
 # HTTP Settings and probe
 echo "Creating probe and HTTP settings..."
 az network application-gateway probe create -g "$rg" --gateway-name "$appgw_name" \
-  --name aciprobe --protocol Https --host-name-from-http-settings --match-status-codes 200-399 --port 443 --path /api/healthcheck
+  --name aciprobe --protocol Https --host-name-from-http-settings --match-status-codes 200-399 --port 443 --path /api/healthcheck -o none
 az network application-gateway http-settings create -g "$rg" --gateway-name "$appgw_name" --port 443 \
-  --name acisettings --protocol https --host-name-from-backend-pool --probe aciprobe --root-certs letsencrypt
+  --name acisettings --protocol https --host-name-from-backend-pool --probe aciprobe --root-certs letsencrypt -o none
 
 # Create config for production container
 echo "Creating config for production ACIs..."
 az network application-gateway address-pool create -n aciprod -g "$rg" --gateway-name "$appgw_name" \
-  --servers "api-prod-01.${dns_zone_name}"
+  --servers "api-prod-01.${dns_zone_name}" -o none
 frontend_name=$(az network application-gateway frontend-ip list -g "$rg" --gateway-name "$appgw_name" --query '[0].name' -o tsv)
-az network application-gateway frontend-port create -n aciprod -g "$rg" --gateway-name "$appgw_name" --port 443
+az network application-gateway frontend-port create -n aciprod -g "$rg" --gateway-name "$appgw_name" --port 443 -o none
 az network application-gateway http-listener create -n aciprod -g "$rg" --gateway-name "$appgw_name" \
-  --frontend-port aciprod --frontend-ip "$frontend_name" --ssl-cert "$cert_name"
+  --frontend-port aciprod --frontend-ip "$frontend_name" --ssl-cert "$cert_name" -o none
 az network application-gateway rule create -g "$rg" --gateway-name "$appgw_name" -n aciprod \
-  --http-listener aciprod --rule-type Basic --address-pool aciprod --http-settings acisettings
+  --http-listener aciprod --rule-type Basic --address-pool aciprod --http-settings acisettings -o none
 
 # Create config for dashboard
 echo "Creating config for dashboard..."
 dash_ip=$(az container show -n dash -g "$rg" --query 'ipAddress.ip' -o tsv) && echo "$dash_ip"
-az network application-gateway address-pool create -n dash -g "$rg" --gateway-name "$appgw_name" --servers "$dash_ip"
+az network application-gateway probe create -g "$rg" --gateway-name "$appgw_name" \
+  --name dash --protocol Http --host-name-from-http-settings --match-status-codes 200-399 --port 8050 --path / -o none
+az network application-gateway http-settings create -g "$rg" --gateway-name "$appgw_name" --port 443 \
+  --name dash --protocol http --host-name-from-backend-pool --probe dash -o none
+az network application-gateway address-pool create -n dash -g "$rg" --gateway-name "$appgw_name" --servers "$dash_ip" -o none
 frontend_name=$(az network application-gateway frontend-ip list -g "$rg" --gateway-name "$appgw_name" --query '[0].name' -o tsv)
-az network application-gateway frontend-port create -n dash -g "$rg" --gateway-name "$appgw_name" --port 8050
+az network application-gateway frontend-port create -n dash -g "$rg" --gateway-name "$appgw_name" --port 8050 -o none
 az network application-gateway http-listener create -n dash -g "$rg" --gateway-name "$appgw_name" \
-  --frontend-port dash --frontend-ip "$frontend_name" --ssl-cert "$cert_name"
+  --frontend-port dash --frontend-ip "$frontend_name" --ssl-cert "$cert_name" -o none
 az network application-gateway rule create -g "$rg" --gateway-name "$appgw_name" -n dash \
-  --http-listener dash --rule-type Basic --address-pool dash --http-settings acisettings
+  --http-listener dash --rule-type Basic --address-pool dash --http-settings dash -o none
+
+# Cleanup initial dummy config
+az network application-gateway rule delete -g "$rg" --gateway-name "$appgw_name" -n rule1 -o none
+az network application-gateway address-pool delete -g "$rg" --gateway-name "$appgw_name" -n appGatewayBackendPool -o none
+az network application-gateway http-settings delete -g "$rg" --gateway-name "$appgw_name" -n appGatewayBackendHttpSettings -o none
+az network application-gateway http-listener delete -g "$rg" --gateway-name "$appgw_name" -n appGatewayHttpListener -o none

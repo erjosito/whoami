@@ -201,7 +201,7 @@ EOF
 nginx_conf=$(base64 "$nginx_config_file")
 
 # Get certificates from AKV
-fqdn="${appgw_name}.${public_domain}"
+fqdn="*.${public_domain}"
 # cert_name=$(echo "$fqdn" | sed 's/[^a-zA-Z0-9]//g')
 cert_name=${fqdn//[^a-zA-Z0-9]/}
 echo "Getting certificate $cert_name from Azure Key Vault $akv_name"
