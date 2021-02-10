@@ -12,7 +12,7 @@ env:
   resource_group: acilab
   cert_email: "jose.moreno@microsoft.com"
   cert_domain: "cloudtrooper.net"
-  cert_staging: yes
+  cert_staging: no
   cert_key_passphrase: no
   cert_force_creation: no
 
