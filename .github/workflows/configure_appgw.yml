@@ -24,7 +24,7 @@ jobs:
           creds: ${{ secrets.AZURE_CREDENTIALS }}
   
       # Run script in repo
-      - name: Azure CLI script file
+      - name: "Configure App GW rules"
         uses: azure/CLI@v1
         env:
           AZURE_CREDENTIALS: ${{ secrets.AZURE_CREDENTIALS }}

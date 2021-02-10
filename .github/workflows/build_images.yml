@@ -23,7 +23,7 @@ jobs:
           creds: ${{ secrets.AZURE_CREDENTIALS }}
   
       # Run script in repo
-      - name: Azure CLI script file
+      - name: Build images to ACR
         uses: azure/CLI@v1
         with:
           azcliversion: latest

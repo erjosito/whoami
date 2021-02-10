@@ -49,7 +49,7 @@ fi
 # Import certs from AKV
 fqdn="*.${public_domain}"
 cert_name=${fqdn//[^a-zA-Z0-9]/}
-cert_id=$(az network application-gateway ssl-cert show -n "$cert_name" --gateway-name "$appgw_name" -g "$rg" --query id -o tsv)
+cert_id=$(az network application-gateway ssl-cert show -n "$cert_name" --gateway-name "$appgw_name" -g "$rg" --query id -o tsv 2>/dev/null)
 if [[ -z "$cert_id" ]]
 then
     echo "Adding SSL certificate to Application Gateway from Key Vault..."
@@ -65,7 +65,7 @@ else
 fi
 
 # Import root cert for LetsEncrypt
-root_cert_id=$(az network application-gateway ssl-cert show -n letsencrypt --gateway-name "$appgw_name" -g "$rg" --query id -o tsv)
+root_cert_id=$(az network application-gateway ssl-cert show -n letsencrypt --gateway-name "$appgw_name" -g "$rg" --query id -o tsv 2>/dev/null)
 if [[ -z "$root_cert_id" ]]
 then
     current_dir=$(dirname "$0")
@@ -78,8 +78,9 @@ else
 fi
 
 # Check if there is already a rule for aciprod
-pool_id=$(az network application-gateway address-pool show -n aciprod --gateway-name "$appgw_name" -g "$rg" --query id -o tsv)
-if [[ -z "$pool_id" ]]
+echo "Verifying if rule for production already exists..."
+rule_id=$(az network application-gateway rule show -n aciprod --gateway-name "$appgw_name" -g "$rg" --query id -o tsv 2>/dev/null)
+if [[ -z "$rule_id" ]]
 then
     # HTTP Settings and probe
     echo "Creating probe and HTTP settings..."
@@ -103,15 +104,16 @@ else
 fi
 
 # Check if there is already a rule for the dashboard
-pool_id=$(az network application-gateway address-pool show -n dash --gateway-name "$appgw_name" -g "$rg" --query id -o tsv)
-if [[ -z "$pool_id" ]]
+echo "Verifying if rule for dashboard already exists..."
+rule_id=$(az network application-gateway rule show -n dash --gateway-name "$appgw_name" -g "$rg" --query id -o tsv 2>/dev/null)
+if [[ -z "$rule_id" ]]
 then
     # Create config for dashboard
     echo "Creating config for dashboard..."
     dash_ip=$(az container show -n dash -g "$rg" --query 'ipAddress.ip' -o tsv) && echo "$dash_ip"
     az network application-gateway probe create -g "$rg" --gateway-name "$appgw_name" \
     --name dash --protocol Http --host-name-from-http-settings --match-status-codes 200-399 --port 8050 --path / -o none
-    az network application-gateway http-settings create -g "$rg" --gateway-name "$appgw_name" --port 443 \
+    az network application-gateway http-settings create -g "$rg" --gateway-name "$appgw_name" --port 8050 \
     --name dash --protocol http --host-name-from-backend-pool --probe dash -o none
     az network application-gateway address-pool create -n dash -g "$rg" --gateway-name "$appgw_name" --servers "$dash_ip" -o none
     frontend_name=$(az network application-gateway frontend-ip list -g "$rg" --gateway-name "$appgw_name" --query '[0].name' -o tsv)
@@ -125,7 +127,8 @@ else
 fi
 
 # Check if the dummy config is still there
-pool_id=$(az network application-gateway address-pool show -n appGatewayBackendPool --gateway-name "$appgw_name" -g "$rg" --query id -o tsv)
+echo "Verifying if dummy config still exists..."
+pool_id=$(az network application-gateway address-pool show -n appGatewayBackendPool --gateway-name "$appgw_name" -g "$rg" --query id -o tsv 2>/dev/null)
 if [[ -n "$pool_id" ]]
 then
     # Cleanup initial dummy config

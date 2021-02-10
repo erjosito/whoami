@@ -25,16 +25,8 @@ jobs:
         with:
           creds: ${{ secrets.AZURE_CREDENTIALS }}
 
-      # Run inline script
-      - name: "Deploy infrastructure"
-        uses: azure/CLI@v1
-        with:
-          azcliversion: latest
-          inlineScript: |
-            az account show
-
       # Run script in repo
-      - name: Azure CLI script file
+      - name: "Deploy infrastructure"
         uses: azure/CLI@v1
         with:
           azcliversion: latest
