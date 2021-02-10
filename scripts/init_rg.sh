@@ -92,7 +92,7 @@ else
 fi
 
 # Create Vnet
-vnet_id=$(az network vnet show -n "$vnet_name" -g "$rg" --query id -o tsv)
+vnet_id=$(az network vnet show -n "$vnet_name" -g "$rg" --query id -o tsv 2>/dev/null)
 if [[ -z "$vnet_id" ]]
 then
   echo "INFO: Creating new Vnet..."
@@ -105,7 +105,7 @@ else
 fi
 
 # Create Azure private DNS zone for ACIs and link it to Vnet
-dns_zone_id=$(az network private-dns zone show -n "$dns_zone_name" -g "$rg" --query id -o tsv)
+dns_zone_id=$(az network private-dns zone show -n "$dns_zone_name" -g "$rg" --query id -o tsv 2>/dev/null)
 if [[ -z "$dns_zone_id" ]]
 then
   echo "INFO: Creating new private DNS zone $dns_zone_name..."
@@ -125,7 +125,7 @@ then
   sp_appid=$(az account show --query user.name -o tsv)
   sp_oid=$(az ad sp show --id "$sp_appid" --query objectId -o tsv)
   az keyvault set-policy -n "$akv_name" --object-id "$sp_oid" \
-          --secret-permissions get list set update delete \
+          --secret-permissions get list set delete \
           --certificate-permissions create import list get setissuers update \
           --key-permissions create get import sign verify list
 else
