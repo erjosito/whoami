@@ -572,7 +572,7 @@ az network application-gateway address-pool update -n appGatewayBackendPool -g $
 vm_subnet_name=vm
 vm_subnet_prefix=192.168.10.0/24
 az network vnet subnet create -n $vm_subnet_name --address-prefix $vm_subnet_prefix --vnet-name $vnet_name -g $rg
-az vm create -n test-vm -g $rg -l $location --image ubuntuLTS --generate-ssh-keys --size Standard_B2ms --public-ip-address test-vm-pip --vnet-name $vnet_name --subnet $vm_subnet_name
+az vm create -n test-vm -g $rg -l $location --image ubuntuLTS --generate-ssh-keys --size Standard_B1ms --public-ip-address test-vm-pip --vnet-name $vnet_name --subnet $vm_subnet_name
 vm_ip=$(az network public-ip show -n test-vm-pip -g $rg --query ipAddress -o tsv)
 echo "You can connect to VM $vm_ip for troubleshooting from within the VNet"
 # fqdn="${aci_name_prefix}-dev-02.${dns_zone_name}"

@@ -77,6 +77,19 @@ else
     echo "LetsEncrypt root certificate already present in Application Gateway $appgw_name"
 fi
 
+# Import staging root cert for LetsEncrypt
+root_cert_id=$(az network application-gateway ssl-cert show -n letsencryptstaging --gateway-name "$appgw_name" -g "$rg" --query id -o tsv 2>/dev/null)
+if [[ -z "$root_cert_id" ]]
+then
+    current_dir=$(dirname "$0")
+    base_dir=$(dirname "$current_dir")
+    root_cert_file="${base_dir}/letsencrypt/fakelerootx1.crt"
+    echo "Adding LetsEncrypt staging root cert to Application Gateway..."
+    az network application-gateway root-cert create -g "$rg" --gateway-name "$appgw_name" --name letsencryptstaging --cert-file "$root_cert_file" -o none
+else
+    echo "LetsEncrypt staging root certificate already present in Application Gateway $appgw_name"
+fi
+
 # Check if there is already a rule for aciprod
 echo "Verifying if rule for production already exists..."
 rule_id=$(az network application-gateway rule show -n aciprod --gateway-name "$appgw_name" -g "$rg" --query id -o tsv 2>/dev/null)
@@ -87,7 +100,7 @@ then
     az network application-gateway probe create -g "$rg" --gateway-name "$appgw_name" \
     --name aciprobe --protocol Https --host-name-from-http-settings --match-status-codes 200-399 --port 443 --path /api/healthcheck -o none
     az network application-gateway http-settings create -g "$rg" --gateway-name "$appgw_name" --port 443 \
-    --name acisettings --protocol https --host-name-from-backend-pool --probe aciprobe --root-certs letsencrypt -o none
+    --name acisettings --protocol https --host-name-from-backend-pool --probe aciprobe --root-certs letsencrypt letsencryptstaging -o none
 
     # Create config for production container
     echo "Creating config for production ACIs..."
