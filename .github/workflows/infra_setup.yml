@@ -5,10 +5,10 @@ on:
     inputs: {}
 
 env:
-  resource_group: whoami
+  resource_group: acilab
   location: westeurope
   public_domain: "cloudtrooper.net"
-  private_domain: "contoso.com"
+  private_domain: "cloudtrooper.net"
 
 jobs:
   create_infra:

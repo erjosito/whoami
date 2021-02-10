@@ -5,7 +5,7 @@ on:
     inputs: {}
 
 env:
-  resource_group: whoami
+  resource_group: acilab
   cert_email: "jose.moreno@microsoft.com"
   cert_domain: "cloudtrooper.net"
   cert_staging: yes
