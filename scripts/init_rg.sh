@@ -176,7 +176,7 @@ nw_profile_id=$(az network profile list -g "$rg" --query '[0].id' -o tsv) && ech
 while [[ -z "$nw_profile_id" ]]
 do
     echo "Trying to create a network profile..."
-    az container create -n dummy -g "$rg" --image mcr.microsoft.com/azuredocs/aci-helloworld --ip-address private --ports 80 --vnet "$vnet_id" --subnet "$subnet_id" || true
+    az container create -n dummy -g "$rg" --image mcr.microsoft.com/azuredocs/aci-helloworld --ip-address private --ports 80 --vnet "$vnet_id" --subnet "$subnet_id" 2>/dev/null || true
     # If the previous command fails with an error, it is no problem, as long as a network profile is created (see below)
     az container delete -n dummy -g "$rg" -y || true
     nw_profile_id=$(az network profile list -g "$rg" --query '[0].id' -o tsv) && echo "$nw_profile_id"
@@ -235,7 +235,7 @@ then
   then
     echo "ERROR: I could not find the public DNS zone $public_domain in subscription $sub_name"
   else
-    az network dns record-set cname delete -g "$public_dns_rg" -z "$public_domain" -n "$appgw_name" || true
+    az network dns record-set cname delete -g "$public_dns_rg" -z "$public_domain" -n "$appgw_name" -y 2>/dev/null || true
     az network dns record-set cname create -g "$public_dns_rg" -z "$public_domain" -n "$appgw_name"
     az network dns record-set cname set-record -g "$public_dns_rg" -z "$public_domain"  -n "$appgw_name" -c "$appgw_fqdn"
     echo "Your App Gateway applications should be reachable under the FQDN ${appgw_name}.${public_domain}"
