@@ -229,17 +229,48 @@ then
       --http-settings-port 1234 --http-settings-protocol Http \
       --public-ip-address "$appgw_pip_name" --vnet-name "$vnet_name" --subnet "$appgw_subnet_name" \
       --servers "1.2.3.4"
-  echo "INFO: Updating now public domain $public_domain..."
-  public_dns_rg=$(az network dns zone list --query "[?name=='$public_domain'].resourceGroup" -o tsv)
-  if [[ -z "$public_dns_rg" ]]
-  then
-    echo "ERROR: I could not find the public DNS zone $public_domain in subscription $sub_name"
-  else
-    az network dns record-set cname delete -g "$public_dns_rg" -z "$public_domain" -n "$appgw_name" -y 2>/dev/null || true
-    az network dns record-set cname create -g "$public_dns_rg" -z "$public_domain" -n "$appgw_name"
-    az network dns record-set cname set-record -g "$public_dns_rg" -z "$public_domain"  -n "$appgw_name" -c "$appgw_fqdn"
-    echo "Your App Gateway applications should be reachable under the FQDN ${appgw_name}.${public_domain}"
-  fi
 else
   echo "INFO: Application gateway $appgw_name already exists in resource group $rg"
+fi
+
+# Update DNS if required
+echo "INFO: Updating now public domain $public_domain..."
+public_dns_rg=$(az network dns zone list --query "[?name=='$public_domain'].resourceGroup" -o tsv)
+if [[ -z "$public_dns_rg" ]]
+then
+  echo "ERROR: I could not find the public DNS zone $public_domain in subscription $sub_name"
+else
+  # First, remove any existing A-record (we are going to use CNAMEs)
+  a_record_set=$(az network dns record-set a show -n "$appgw_name" -z "$public_domain" -g "$public_dns_rg" -o tsv --query id 2>/dev/null)
+  if [[ -n "$a_record_set" ]]
+  then
+    echo "Deleting existing A record for ${appgw_name}.${public_domain}..."
+    az network dns record-set a delete -n "$appgw_name" -z "$public_domain" -g "$public_dns_rg" -y
+  else
+    echo "No conflicting A records found in ${public_domain}"
+  fi
+  # Get FQDN for AppGW PIP
+  appgw_fqdn=$(az network public-ip show -g "$rg" -n "$appgw_pip_name" --query dnsSettings.fqdn -o tsv)
+  if [[ -n "$appgw_fqdn" ]]
+  then
+    # Update DNS zone
+    # Check if CNAME exists
+    existing_record=$(az network dns record-set cname show -g "$public_dns_rg" -z "$public_domain" -n "$appgw_name" --query 'cnameRecord.cname' -o tsv 2>/dev/null)
+    if [[ -z "$existing_record" ]]
+    then
+      echo "Creating new CNAME record to $appgw_fqdn..."
+      az network dns record-set cname create -g "$public_dns_rg" -z "$public_domain" -n "$appgw_name"
+      az network dns record-set cname set-record -g "$public_dns_rg" -z "$public_domain"  -n "$appgw_name" -c "$appgw_fqdn"
+    else
+      if [[ "$existing_record" != "$appgw_fqdn" ]]
+      then
+        echo "Updating existing CNAME record to $appgw_fqdn..."
+        az network dns record-set cname remove-record -g "$public_dns_rg" -z "$public_domain" -n "$appgw_name" -c "$existing_record" --keep-empty-record-set
+        az network dns record-set cname set-record -g "$public_dns_rg" -z "$public_domain"  -n "$appgw_name" -c "$appgw_fqdn"
+      fi
+    fi
+    echo "Your App Gateway applications should be reachable under the FQDN ${appgw_name}.${public_domain}"
+  else
+    echo "ERROR: I could not retrieve the FQDN for public IP $appgw_pip_name"
+  fi
 fi
