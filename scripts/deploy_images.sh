@@ -215,7 +215,7 @@ key_passphrase=$(tr -dc a-zA-Z0-9 </dev/urandom 2>/dev/null| head -c 12)
 openssl pkcs12 -in "$pfx_file" -nocerts -out "$key_file" -passin "pass:" -passout "pass:$key_passphrase"
 openssl rsa -in "$key_file" -out "$key_file" -passin "pass:$key_passphrase"
 echo "Extracting certs from pfx file..."
-openssl pkcs12 -in "$pfx_file" -clcerts -nokeys -out "$cert_file" -passin "pass:" 
+openssl pkcs12 -in "$pfx_file" -nokeys -out "$cert_file" -passin "pass:" 
 # Encode in base64 variables
 ssl_crt=$(base64 "$cert_file")
 ssl_key=$(base64 "$key_file")
