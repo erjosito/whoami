@@ -340,7 +340,8 @@ EOF
 # Create Dashboard container
 echo "Creating dashboard container..."
 az container create -n dash -g "$rg" --image "${acr_name}.azurecr.io/${repo_name}/dash:1.0" --vnet "$vnet_id" --subnet "$subnet_id" --ip-address private --ports 8050  \
-  -e "SQL_SERVER_FQDN=${sql_server_fqdn}" "SQL_SERVER_USERNAME=${sql_username}" "SQL_SERVER_PASSWORD=${sql_password}" "SQL_SERVER_DB=${sql_db_name}" \
+  -e "SQL_SERVER_FQDN=${sql_server_fqdn}" "SQL_SERVER_USERNAME=${sql_username}" "SQL_SERVER_DB=${sql_db_name}" \
+  --secrets "SQL_SERVER_PASSWORD=${sql_password}" \
   --registry-login-server "${acr_name}.azurecr.io" --registry-username "$sp_appid" --registry-password "$sp_password" --location "$location"
 echo "Finding out dashboard's IP address..."
 dash_ip=$(az container show -n dash -g "$rg" --query 'ipAddress.ip' -o tsv) && echo "$dash_ip"

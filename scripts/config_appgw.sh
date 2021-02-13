@@ -65,14 +65,14 @@ else
 fi
 
 # Import X1 root cert for LetsEncrypt
-root_cert_id=$(az network application-gateway ssl-cert show -n letsencrypt --gateway-name "$appgw_name" -g "$rg" --query id -o tsv 2>/dev/null)
+root_cert_id=$(az network application-gateway ssl-cert show -n letsencryptX1 --gateway-name "$appgw_name" -g "$rg" --query id -o tsv 2>/dev/null)
 if [[ -z "$root_cert_id" ]]
 then
     current_dir=$(dirname "$0")
     base_dir=$(dirname "$current_dir")
     root_cert_file="${base_dir}/letsencrypt/isrgrootx1.crt"
-    echo "Adding LetsEncrypt root cert to Application Gateway..."
-    az network application-gateway root-cert create -g "$rg" --gateway-name "$appgw_name" --name letsencrypt --cert-file "$root_cert_file" -o none
+    echo "Adding LetsEncrypt X1 root cert to Application Gateway..."
+    az network application-gateway root-cert create -g "$rg" --gateway-name "$appgw_name" --name letsencryptX1 --cert-file "$root_cert_file" -o none
 else
     echo "LetsEncrypt X1 root certificate already present in Application Gateway $appgw_name"
 fi
@@ -84,12 +84,11 @@ then
     current_dir=$(dirname "$0")
     base_dir=$(dirname "$current_dir")
     root_cert_file="${base_dir}/letsencrypt/isrgrootx3.cer"
-    echo "Adding LetsEncrypt root cert to Application Gateway..."
+    echo "Adding LetsEncrypt X3 root cert to Application Gateway..."
     az network application-gateway root-cert create -g "$rg" --gateway-name "$appgw_name" --name letsencryptX3 --cert-file "$root_cert_file" -o none
 else
     echo "LetsEncrypt X3 root certificate already present in Application Gateway $appgw_name"
 fi
-
 
 # Import staging root cert for LetsEncrypt
 root_cert_id=$(az network application-gateway ssl-cert show -n letsencryptstaging --gateway-name "$appgw_name" -g "$rg" --query id -o tsv 2>/dev/null)
@@ -114,7 +113,7 @@ then
     az network application-gateway probe create -g "$rg" --gateway-name "$appgw_name" \
     --name aciprobe --protocol Https --host-name-from-http-settings --match-status-codes 200-399 --port 443 --path /api/healthcheck -o none
     az network application-gateway http-settings create -g "$rg" --gateway-name "$appgw_name" --port 443 \
-    --name acisettings --protocol https --host-name-from-backend-pool --probe aciprobe --root-certs letsencrypt letsencryptstaging -o none
+    --name acisettings --protocol https --host-name-from-backend-pool --probe aciprobe --root-certs letsencryptX1 letsencryptX3 letsencryptstaging -o none
 
     # Create config for production container
     echo "Creating config for production ACIs..."
