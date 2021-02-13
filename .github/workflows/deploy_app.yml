@@ -162,6 +162,21 @@ jobs:
                 -z=${{ env.private_domain }} \
                 -d=${{ env.public_domain }}
 
+  test_app:
+    name: Test app
+    runs-on: ubuntu-latest
+    steps:
+    - name: "Send application traffic"
+      run: |
+        curl -sk "https://appgw.${public_domain}/api/healthcheck"
+        curl -sk "https://appgw.${public_domain}/api/sqlsrcip"
+        curl -sk "https://appgw.${public_domain}/api/sqlsrcipinit"
+        for i in {1..120}
+        do
+          curl -sk "https://appgw.${public_domain}/api/sqlsrciplog"
+          sleep 1
+        done
+
 
 
 
