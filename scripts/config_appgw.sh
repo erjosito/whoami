@@ -64,7 +64,7 @@ else
     echo "Cert $cert_name already exists in application gateway $appgw_name"
 fi
 
-# Import root cert for LetsEncrypt
+# Import X1 root cert for LetsEncrypt
 root_cert_id=$(az network application-gateway ssl-cert show -n letsencrypt --gateway-name "$appgw_name" -g "$rg" --query id -o tsv 2>/dev/null)
 if [[ -z "$root_cert_id" ]]
 then
@@ -74,8 +74,22 @@ then
     echo "Adding LetsEncrypt root cert to Application Gateway..."
     az network application-gateway root-cert create -g "$rg" --gateway-name "$appgw_name" --name letsencrypt --cert-file "$root_cert_file" -o none
 else
-    echo "LetsEncrypt root certificate already present in Application Gateway $appgw_name"
+    echo "LetsEncrypt X1 root certificate already present in Application Gateway $appgw_name"
 fi
+
+# Import X3 root cert for LetsEncrypt
+rootx3_cert_id=$(az network application-gateway ssl-cert show -n letsencryptX3 --gateway-name "$appgw_name" -g "$rg" --query id -o tsv 2>/dev/null)
+if [[ -z "$rootx3_cert_id" ]]
+then
+    current_dir=$(dirname "$0")
+    base_dir=$(dirname "$current_dir")
+    root_cert_file="${base_dir}/letsencrypt/isrgrootx3.cer"
+    echo "Adding LetsEncrypt root cert to Application Gateway..."
+    az network application-gateway root-cert create -g "$rg" --gateway-name "$appgw_name" --name letsencryptX3 --cert-file "$root_cert_file" -o none
+else
+    echo "LetsEncrypt X3 root certificate already present in Application Gateway $appgw_name"
+fi
+
 
 # Import staging root cert for LetsEncrypt
 root_cert_id=$(az network application-gateway ssl-cert show -n letsencryptstaging --gateway-name "$appgw_name" -g "$rg" --query id -o tsv 2>/dev/null)
