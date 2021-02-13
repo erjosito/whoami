@@ -1,4 +1,4 @@
-name: Configure App Gateway
+name: 05 - Configure App Gateway
 
 on:
   workflow_dispatch:

@@ -47,6 +47,7 @@ jobs:
                 -d=${{ env.public_domain }}
 
   generate_certs:
+    needs: create_infra
     runs-on: ubuntu-latest
     steps:
       # checkout branch
@@ -81,6 +82,7 @@ jobs:
                 -p=${{ env.cert_key_passphrase }}
 
   build_images:
+    needs: generate_certs
     runs-on: ubuntu-latest
     steps:
       # checkout branch
@@ -106,6 +108,7 @@ jobs:
                 -d=$GITHUB_WORKSPACE
 
   deploy_images:
+    needs: build_images
     runs-on: ubuntu-latest
     steps:
       # checkout branch
@@ -136,6 +139,7 @@ jobs:
                 -d=${{ env.public_domain }}
 
   config_appgw:
+    needs: deploy_images
     runs-on: ubuntu-latest
     steps:
       # checkout branch
@@ -163,6 +167,7 @@ jobs:
                 -d=${{ env.public_domain }}
 
   test_app:
+    needs: config_appgw
     name: Test app
     runs-on: ubuntu-latest
     steps:

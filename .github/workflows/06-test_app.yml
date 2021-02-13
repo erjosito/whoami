@@ -1,11 +1,11 @@
-name: Application Test
+name: 06 - Application Test
 
 on:
   workflow_dispatch:
     inputs: {}
 
 jobs:
-  my-job:
+  test-app:
     name: Test app
     runs-on: ubuntu-latest
     steps:

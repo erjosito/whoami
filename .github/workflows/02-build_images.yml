@@ -1,4 +1,4 @@
-name: Build images
+name: 02 - Build images
 
 on:
   workflow_dispatch:

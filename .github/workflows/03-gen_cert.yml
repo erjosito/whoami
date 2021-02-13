@@ -1,4 +1,4 @@
-name: Generate certificates
+name: 03 - Generate certificates
 
 on:
   # workflow_dispatch:

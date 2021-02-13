@@ -1,4 +1,4 @@
-name: Deploy images
+name: 04 - Deploy images
 
 on:
   workflow_dispatch:
