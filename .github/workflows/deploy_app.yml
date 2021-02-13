@@ -11,10 +11,10 @@ env:
   private_domain: "cloudtrooper.net"
   cert_email: "jose.moreno@microsoft.com"
   cert_domain: "cloudtrooper.net"
-  cert_staging: yes
+  cert_staging: no
   cert_key_passphrase: no
   cert_force_creation: no
-  repo_name: acilab
+  repo_name: aci
 
 jobs:
   create_infra:
