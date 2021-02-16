@@ -222,9 +222,6 @@ ssl_key=$(base64 "$key_file")
 
 # Function to deploy the API container to the vnet
 # Not including DNS config:
-    # dnsConfig:
-    #   nameServers:
-    #   - 168.63.129.16
 function deploy_api() {
   # ACI name must be provided as argument
   aci_name=$1
@@ -327,6 +324,9 @@ function deploy_api() {
         shareName: initscript
         storageAccountName: $storage_account_name
         storageAccountKey: $storage_account_key
+    # dnsConfig:
+    #   nameServers:
+    #   - 168.63.129.16
     ipAddress:
       ports:
       - port: 443
@@ -379,6 +379,9 @@ function deploy_dash() {
           requests:
             cpu: 1.0
             memoryInGB: 1.5
+    # dnsConfig:
+    #   nameServers:
+    #   - 168.63.129.16
     ipAddress:
       ports:
       - port: 8050
@@ -402,7 +405,7 @@ echo "Creating dashboard container..."
 #   --secrets "SQL_SERVER_PASSWORD=${sql_password}" \
 #   --registry-login-server "${acr_name}.azurecr.io" --registry-username "$sp_appid" --registry-password "$sp_password" --location "$location"
 dash_image="${acr_name}.azurecr.io/${repo_name}/dash:1.0"
-deploy_api api-prod-01 "$dash_image"
+deploy_dash dash "$dash_image"
 echo "Finding out dashboard's IP address..."
 dash_ip=$(az container show -n dash -g "$rg" --query 'ipAddress.ip' -o tsv) && echo "$dash_ip"
 
