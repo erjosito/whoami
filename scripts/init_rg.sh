@@ -280,24 +280,29 @@ fi
 
 # Create custom DNS server in VM
 dnsvm_name=dns01
-dnsvm_id=$(az vm show -n "$dnsvm_name" -g "$rg" --query id -o tsv 2>/dev/null)
+cloudinit_file=/tmp/cloudinit.txt
+# cat <<EOF > $cloudinit_file
+# #cloud-config
+# package_upgrade: true
+# packages:
+#   - dnsmasq
+# EOF
 cat <<EOF > $cloudinit_file
 #cloud-config
-package_upgrade: true
-packages:
-  - dnsmasq
+runcmd:
+  - apt-get install -y dnsmasq --fix-missing
 EOF
+dnsvm_id=$(az vm show -n "$dnsvm_name" -g "$rg" --query id -o tsv 2>/dev/null)
 if [[ -z "$dnsvm_id" ]]
 then
   echo "INFO: Creating DNS server ${dnsvm_name}..."
-  cloudinit_file=/tmp/cloudinit.txt
   az vm create -n "$dnsvm_name" -g "$rg" -l "$location" --image ubuntuLTS --generate-ssh-keys --custom-data $cloudinit_file \
                --size Standard_B1ms --public-ip-address "${dnsvm_name}-pip" --vnet-name "$vnet_name" --subnet "$dns_subnet_name"
   # dnsvm_ip=$(az network public-ip show -n "${dnsvm_name}-pip" -g $rg --query ipAddress -o tsv)
   # if [[ -n "$dnsvm_ip" ]]
   # then
   #   echo "Installing dnsmasq in $dnsvm_ip..."
-  #   ssh -n -o BatchMode=yes -o StrictHostKeyChecking=no "$dnsvm_ip" "sudo apt -y install apache2 dnsmasq"
+  #   ssh -n -o BatchMode=yes -o StrictHostKeyChecking=no "$dnsvm_ip" "sudo apt -y install dnsmasq"
   # else
   #   echo "ERROR: could not find out the public IP for ${dnsvm_name}-pip"
   # fi
