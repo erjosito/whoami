@@ -290,6 +290,7 @@ cloudinit_file=/tmp/cloudinit.txt
 cat <<EOF > $cloudinit_file
 #cloud-config
 runcmd:
+  - apt-get update
   - apt-get install -y dnsmasq --fix-missing
 EOF
 dnsvm_id=$(az vm show -n "$dnsvm_name" -g "$rg" --query id -o tsv 2>/dev/null)
