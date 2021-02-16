@@ -220,8 +220,12 @@ openssl pkcs12 -in "$pfx_file" -nokeys -out "$cert_file" -passin "pass:"
 ssl_crt=$(base64 "$cert_file")
 ssl_key=$(base64 "$key_file")
 
-# Function to deploy an ACI to the vnet
-function deploy_aci() {
+# Function to deploy the API container to the vnet
+# Not including DNS config:
+    # dnsConfig:
+    #   nameServers:
+    #   - 168.63.129.16
+function deploy_api() {
   # ACI name must be provided as argument
   aci_name=$1
   container_image=$2
@@ -229,7 +233,7 @@ function deploy_aci() {
   aci_yaml_file=/tmp/acilab.yaml
   cat <<EOF > $aci_yaml_file
   apiVersion: 2019-12-01
-  location: westus
+  location: $location
   name: $aci_name
   properties:
     imageRegistryCredentials: # Credentials to pull a private image
@@ -337,19 +341,75 @@ EOF
   az container create -g "$rg" --file "$aci_yaml_file" --no-wait
 }
 
+function deploy_dash() {
+  # ACI name must be provided as argument
+  aci_name=$1
+  container_image=$2
+  # Create YAML
+  aci_yaml_file=/tmp/acilab.yaml
+  cat <<EOF > $aci_yaml_file
+  apiVersion: 2019-12-01
+  name: $aci_name
+  location: $location
+  name: dash
+  properties:
+    imageRegistryCredentials: # Credentials to pull a private image
+    - server: ${acr_name}.azurecr.io
+      username: $sp_appid
+      password: $sp_password
+    networkProfile:
+      id: $nw_profile_id
+    containers:
+    - name: dash
+      properties:
+        environmentVariables:
+        - name: SQL_SERVER_FQDN
+          value: $sql_server_fqdn
+        - name: SQL_SERVER_USERNAME
+          value: $sql_username
+        - name: SQL_SERVER_DB
+          value: $sql_db_name
+        - name: SQL_SERVER_PASSWORD
+          secureValue: $sql_password
+        image: $container_image
+        ports:
+        - port: 8050
+          protocol: TCP
+        resources:
+          requests:
+            cpu: 1.0
+            memoryInGB: 1.5
+    ipAddress:
+      ports:
+      - port: 8050
+        protocol: TCP
+      type: Private
+    osType: Linux
+    restartPolicy: Always
+  tags: {}
+  type: Microsoft.ContainerInstance/containerGroups
+EOF
+
+  # Deploy ACI
+  az container create -g "$rg" --file "$aci_yaml_file"
+}
+
+
 # Create Dashboard container
 echo "Creating dashboard container..."
-az container create -n dash -g "$rg" --image "${acr_name}.azurecr.io/${repo_name}/dash:1.0" --vnet "$vnet_id" --subnet "$subnet_id" --ip-address private --ports 8050  \
-  -e "SQL_SERVER_FQDN=${sql_server_fqdn}" "SQL_SERVER_USERNAME=${sql_username}" "SQL_SERVER_DB=${sql_db_name}" \
-  --secrets "SQL_SERVER_PASSWORD=${sql_password}" \
-  --registry-login-server "${acr_name}.azurecr.io" --registry-username "$sp_appid" --registry-password "$sp_password" --location "$location"
+# az container create -n dash -g "$rg" --image "${acr_name}.azurecr.io/${repo_name}/dash:1.0" --vnet "$vnet_id" --subnet "$subnet_id" --ip-address private --ports 8050  \
+#   -e "SQL_SERVER_FQDN=${sql_server_fqdn}" "SQL_SERVER_USERNAME=${sql_username}" "SQL_SERVER_DB=${sql_db_name}" \
+#   --secrets "SQL_SERVER_PASSWORD=${sql_password}" \
+#   --registry-login-server "${acr_name}.azurecr.io" --registry-username "$sp_appid" --registry-password "$sp_password" --location "$location"
+dash_image="${acr_name}.azurecr.io/${repo_name}/dash:1.0"
+deploy_api api-prod-01 "$dash_image"
 echo "Finding out dashboard's IP address..."
 dash_ip=$(az container show -n dash -g "$rg" --query 'ipAddress.ip' -o tsv) && echo "$dash_ip"
 
-# Create main container (the function creates the container in --no-wait)
+# Create main API container (the function creates the container in --no-wait)
 echo "Creating API container..."
 prod_image="${acr_name}.azurecr.io/${repo_name}/api:1.0"
-deploy_aci api-prod-01 "$prod_image"
+deploy_api api-prod-01 "$prod_image"
 
 # Check
 az container list -g "$rg" -o table

@@ -136,6 +136,7 @@ jobs:
             chmod +x $GITHUB_WORKSPACE/scripts/deploy_images.sh
             $GITHUB_WORKSPACE/scripts/deploy_images.sh \
                 -g=${{ env.resource_group }} \
+                -l=${{ env.location }} \
                 -r=${{ env.repo_name }} \
                 -u=${{ secrets.SQL_USERNAME }} \
                 -p=${{ secrets.SQL_PASSWORD }} \
