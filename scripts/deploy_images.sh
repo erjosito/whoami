@@ -126,6 +126,23 @@ else
   storage_account_key=$(az storage account keys list --account-name "$storage_account_name" -g "$rg" --query '[0].value' -o tsv)
 fi
 
+# Get address for DNS server
+dnsvm_name=dns01
+dnsvm_nic_id=$(az vm show -n "$dnsvm_name" -g $rg --query 'networkProfile.networkInterfaces[0].id' -o tsv)
+if [[ -n "$dnsvm_nic_id" ]]
+then
+  dnsvm_private_ip=$(az network nic show --ids "$dnsvm_nic_id" --query 'ipConfigurations[0].privateIpAddress' -o tsv)
+  if [[ -n "$dnsvm_private_ip" ]]
+  then
+    echo "INFO: found private IP address for DNS forwarder: $dnsvm_private_ip"
+  else
+    echo "ERROR: could not find private IP address for NIC $dnsvm_nic_id"
+  fi
+else
+  echo "ERROR: could not find NIC ID for VM $dnsvm_name"
+fi
+
+
 # Get Service Principal ID and password from the AZURE_CREDENTIALS env variable if supplied
 if [[ -n "$AZURE_CREDENTIALS" ]]
 then
@@ -326,7 +343,7 @@ function deploy_api() {
         storageAccountKey: $storage_account_key
     dnsConfig:
       nameServers:
-      - 168.63.129.16
+      - $dnsvm_private_ip
     ipAddress:
       ports:
       - port: 443
@@ -381,7 +398,7 @@ function deploy_dash() {
             memoryInGB: 1.5
     dnsConfig:
       nameServers:
-      - 168.63.129.16
+      - $dnsvm_private_ip
     ipAddress:
       ports:
       - port: 8050

@@ -21,6 +21,8 @@ sql_username=azure
 appgw_name=appgw
 appgw_pip_name="${appgw_name}-pip"
 appgw_pip_dns="${appgw_name}-${unique_id}"
+dns_subnet_name=dnsservers
+dns_subnet_prefix=192.168.4.0/24
 
 # Argument parsing (can overwrite the previously initialized variables)
 for i in "$@"
@@ -100,6 +102,7 @@ then
   az network vnet subnet create --vnet-name "$vnet_name" -g "$rg" -n "$appgw_subnet_name" --address-prefix "$appgw_subnet_prefix"
   az network vnet subnet create --vnet-name "$vnet_name" -g "$rg" -n "$aci_subnet_name" --address-prefix "$aci_subnet_prefix"
   az network vnet subnet create --vnet-name "$vnet_name" -g "$rg" -n "$sql_subnet_name" --address-prefix "$sql_subnet_prefix"
+  az network vnet subnet create --vnet-name "$vnet_name" -g "$rg" -n "$dns_subnet_name" --address-prefix "$dns_subnet_prefix"
 else
   echo "INFO: Vnet $vnet_name already existing in resource group $rg"
 fi
@@ -273,4 +276,24 @@ else
   else
     echo "ERROR: I could not retrieve the FQDN for public IP $appgw_pip_name"
   fi
+fi
+
+# Create custom DNS server in VM
+dnsvm_name=dns01
+dnsvm_id=$(az vm show -n "$dnsvm_name" -g "$rg" --query id -o tsv 2>/dev/null)
+if [[ -z "$dnsvm_id" ]]
+then
+  echo "INFO: Creating DNS server ${dnsvm_name}..."
+  az vm create -n "$dnsvm_name" -g "$rg" -l "$location" --image ubuntuLTS --generate-ssh-keys \
+               --size Standard_B1ms --public-ip-address "${dnsvm_name}-pip" --vnet-name "$vnet_name" --subnet "$dns_subnet_name"
+  dnsvm_ip=$(az network public-ip show -n "${dnsvm_name}-pip" -g $rg --query ipAddress -o tsv)
+  if [[ -n "$dnsvm_ip" ]]
+  then
+    echo "Installing dnsmasq in $dnsvm_ip..."
+    ssh -n -o BatchMode=yes -o StrictHostKeyChecking=no "$dnsvm_ip" "sudo apt -y install apache2 dnsmasq"
+  else
+    echo "ERROR: could not find out the public IP for ${dnsvm_name}-pip"
+  fi
+else
+  echo "INFO: DNS server ${dnsvm_name} already exists."
 fi
