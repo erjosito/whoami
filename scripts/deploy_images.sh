@@ -324,9 +324,9 @@ function deploy_api() {
         shareName: initscript
         storageAccountName: $storage_account_name
         storageAccountKey: $storage_account_key
-    # dnsConfig:
-    #   nameServers:
-    #   - 168.63.129.16
+    dnsConfig:
+      nameServers:
+      - 168.63.129.16
     ipAddress:
       ports:
       - port: 443
@@ -379,9 +379,9 @@ function deploy_dash() {
           requests:
             cpu: 1.0
             memoryInGB: 1.5
-    # dnsConfig:
-    #   nameServers:
-    #   - 168.63.129.16
+    dnsConfig:
+      nameServers:
+      - 168.63.129.16
     ipAddress:
       ports:
       - port: 8050
