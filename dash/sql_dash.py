@@ -33,8 +33,8 @@ app.layout = dbc.Container([
         dbc.Row(
             html.Table([
                 html.Tr([
-                    html.Td(html.A('Github repo', href='https://github.com/jldeen/azurefridayaci'), style={'width': '20%'}),
-                    html.Td(html.H2('Azure Friday - ACI'), style={'width': '60%', 'textAlign': 'center'}),
+                    html.Td(html.A('Github repo', href='https://github.com/Azure-Samples/aci-in-vnet-with-sidecars'), style={'width': '20%'}),
+                    html.Td(html.H2('ACI sidecar and init containers'), style={'width': '60%', 'textAlign': 'center'}),
                     html.Td(html.Img(src = app.get_asset_url('azurelogo.png'), width = 125), style={'width': '20%'})
                 ])
             ], style={'width': '100%'})

@@ -11,6 +11,9 @@ Here you can find the source files to build this container. The container is a w
 * `/api/dns`: returns the IP address resolved from the FQDN supplied in the parameter `fqdn`
 * `/api/printenv`: returns the environment variables for the container
 * `/api/curl`: returns the output of a curl request, you can specify the argument with the parameter `url`
+* `/api/pi`: calculates the decimals of the number pi, you can specify how many decimals with the parameter `digits`. 1,000 digits should be quick, but as you keep increasing the number of digits, more CPU will be required. You can use this endpoint to force the container to consume more CPU
+* `/api/sqlsrcipinit`: the previous endpoints do not modify the database. If you want to modify the database, you need first to create a table with this endpoint
+* `/api/sqlsrciplog`: this endpoint will create a new record in the table created with the previous endpoint (`sqlsrcipinit`) with a timestamp and the source IP address as seen by the database.
 
 The container requires these environment variables :
 

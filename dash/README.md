@@ -1,9 +1,6 @@
 # SQL application dashboard
 
-This project uses Python dash to create a visual showing different aspects of an underlying database used by the SQL API in this project, such as:
-
-- Underlaying version
-- Logs of API access
+This project uses Python dash to create a visual showing different aspects of an underlying database used by the SQL API in this project, including a real-time chart showing logs of the application access to the database.
 
 # Using the SQL app dashboard
 
@@ -19,6 +16,7 @@ If you have the SQL API app component running somewhere else, you can generate l
 
 ```bash
 api_url=http://api_url:8080
+curl ${api_url}/api/sqlsrcipinit
 while true
 do
   curl ${api_url}/api/sqlsrciplog
