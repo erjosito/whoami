@@ -72,7 +72,7 @@ unique_id=$(random_string 6)
 
 # Create RG
 sub_name=$(az account show --query name -o tsv)
-rg_id=$(az group show -n "$rg" --query id -o tsv)
+rg_id=$(az group show -n "$rg" --query id -o tsv 2>/dev/null)
 if [[ -z "$rg_id" ]]
 then
   echo "INFO: Creating new resource group..."
