@@ -82,6 +82,24 @@ def handle_sql_variant_as_string(value):
     # return value.decode('utf-16le')
     return value.decode('utf-8')
 
+# Route to uplode file and return file size
+@app.route('/api/filesize', methods=['POST'])
+def getsize():
+    try:
+      uploaded_file = request.files['data']
+      if uploaded_file:
+          f = uploaded_file.read()
+          msg = {
+             'size': len(f)
+          }
+      else:
+         msg = {
+             'size': 'unknown'
+         }
+      return jsonify(msg)
+    except Exception as e:
+        return jsonify(str(e))
+
 # Calculates x digits of number pi
 def pi_digits(x):
     """Generate x digits of Pi."""
@@ -182,14 +200,14 @@ def send_sql_query(sql_server_fqdn = None, sql_server_db = None, sql_server_user
                     db = pymysql.connect(host=sql_server_fqdn, user=sql_server_username, passwd=sql_server_password, ssl={'ssl':{'ca': 'BaltimoreCyberTrustRoot.crt.pem'}})
                 else:
                     app.logger.info('Connecting with SSL to mysql server ' + str(sql_server_fqdn) + ', database ' + str(sql_server_db) + ', username ' + str(sql_server_username) + ', password ' + str(sql_server_password))
-                    db = pymysql.connect(sql_server_fqdn, sql_server_username, sql_server_password, sql_server_db, ssl={'ssl':{'ca': 'BaltimoreCyberTrustRoot.crt.pem'}})
+                    db = pymysql.connect(host=sql_server_fqdn, user=sql_server_username, paswd=sql_server_password, database=sql_server_db, ssl={'ssl':{'ca': 'BaltimoreCyberTrustRoot.crt.pem'}})
             else:
                 if sql_server_db == None:
                     app.logger.info('Connecting without SSL to mysql server ' + str(sql_server_fqdn) + ', username ' + str(sql_server_username) + ', password ' + str(sql_server_password))
                     db = pymysql.connect(host=sql_server_fqdn, user=sql_server_username, passwd=sql_server_password)
                 else:
                     app.logger.info('Connecting without SSL to mysql server ' + str(sql_server_fqdn) + ', database ' + str(sql_server_db) + ', username ' + str(sql_server_username) + ', password ' + str(sql_server_password))
-                    db = pymysql.connect(sql_server_fqdn, sql_server_username, sql_server_password, sql_server_db)
+                    db = pymysql.connect(host=sql_server_fqdn, user=sql_server_username, passwd=sql_server_password, database=sql_server_db)
             # Send query and extract data
             cursor = db.cursor()
             cursor.execute(sql_query)
