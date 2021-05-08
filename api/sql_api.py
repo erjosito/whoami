@@ -82,24 +82,6 @@ def handle_sql_variant_as_string(value):
     # return value.decode('utf-16le')
     return value.decode('utf-8')
 
-# Route to uplode file and return file size
-@app.route('/api/filesize', methods=['POST'])
-def getsize():
-    try:
-      uploaded_file = request.files['data']
-      if uploaded_file:
-          f = uploaded_file.read()
-          msg = {
-             'size': len(f)
-          }
-      else:
-         msg = {
-             'size': 'unknown'
-         }
-      return jsonify(msg)
-    except Exception as e:
-        return jsonify(str(e))
-
 # Calculates x digits of number pi
 def pi_digits(x):
     """Generate x digits of Pi."""
@@ -310,7 +292,25 @@ def get_default_gateway():
                 return socket.inet_ntoa(struct.pack("<L", int(fields[2], 16)))
     except Exception as e:
         return str(e)
- 
+
+# Route to uplode file and return file size
+@app.route('/api/filesize', methods=['POST'])
+def getsize():
+    try:
+      uploaded_file = request.files['data']
+      if uploaded_file:
+          f = uploaded_file.read()
+          msg = {
+             'size': len(f)
+          }
+      else:
+         msg = {
+             'size': 'unknown'
+         }
+      return jsonify(msg)
+    except Exception as e:
+        return jsonify(str(e))
+
 # Flask route for healthchecks
 @app.route("/api/healthcheck", methods=['GET'])
 def healthcheck():
