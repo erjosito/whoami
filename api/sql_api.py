@@ -7,6 +7,8 @@ import requests
 import dns.resolver
 import psycopg2
 import datetime
+from random import shuffle
+import urllib.parse
 
 from flask import Flask
 from flask import request
@@ -20,6 +22,89 @@ try:
     import pymysql
 except:
     pass
+
+# Courtesy of https://github.com/thodnev/MonkeyTest
+class Benchmark:
+
+    def __init__(self, file, write_mb, write_block_kb, read_block_kb):
+        self.file = file
+        self.write_mb = write_mb
+        self.write_block_kb = write_block_kb
+        self.read_block_kb = read_block_kb
+        wr_blocks = int(self.write_mb * 1024 / self.write_block_kb)
+        rd_blocks = int(self.write_mb * 1024 / self.read_block_kb)
+        self.write_results = self.write_test (1024 * self.write_block_kb, wr_blocks)
+        self.read_results = self.read_test (1024 * self.read_block_kb, rd_blocks)
+
+    def write_test(self, block_size, blocks_count, show_progress=True):
+        '''
+        Tests write speed by writing random blocks, at total quantity
+        of blocks_count, each at size of block_size bytes to disk.
+        Function returns a list of write times in sec of each block.
+        '''
+        f = os.open(self.file, os.O_CREAT | os.O_WRONLY, 0o777)  # low-level I/O
+
+        took = []
+        for i in range(blocks_count):
+            if show_progress:
+                # dirty trick to actually print progress on each iteration
+                sys.stdout.write('\rWriting: {:.2f} %'.format(
+                    (i + 1) * 100 / blocks_count))
+                sys.stdout.flush()
+            buff = os.urandom(block_size)
+            start = time.time()
+            os.write(f, buff)
+            os.fsync(f)  # force write to disk
+            t = time.time() - start
+            took.append(t)
+
+        os.close(f)
+        return took
+
+    def read_test(self, block_size, blocks_count, show_progress=True):
+        '''
+        Performs read speed test by reading random offset blocks from
+        file, at maximum of blocks_count, each at size of block_size
+        bytes until the End Of File reached.
+        Returns a list of read times in sec of each block.
+        '''
+        f = os.open(self.file, os.O_RDONLY, 0o777)  # low-level I/O
+        # generate random read positions
+        offsets = list(range(0, blocks_count * block_size, block_size))
+        shuffle(offsets)
+
+        took = []
+        for i, offset in enumerate(offsets, 1):
+            if show_progress and i % int(self.write_block_kb / self.read_block_kb) == 0:
+                # read is faster than write, so try to equalize print period
+                sys.stdout.write('\rReading: {:.2f} %'.format(
+                    (i + 1) * 100 / blocks_count))
+                sys.stdout.flush()
+            start = time.time()
+            os.lseek(f, offset, os.SEEK_SET)  # set position
+            buff = os.read(f, block_size)  # read from position
+            t = time.time() - start
+            if not buff: break  # if EOF reached
+            took.append(t)
+
+        os.close(f)
+        return took
+
+    def get_json_result(self):
+        results_json = {}
+        results_json["Filepath"] = self.file
+        results_json["Written MB"] = self.write_mb
+        results_json["Write block size (KB)"] = self.write_block_kb
+        results_json["Written blocks"] = len(self.write_results)
+        results_json["Write time (sec)"] = round(sum(self.write_results), 2)
+        results_json["Write bandwidth in MB/s"] = round(self.write_mb / sum(self.write_results), 2)
+        results_json["Write IOPS"] = round(len(self.write_results) / sum(self.write_results), 0)
+        results_json["Read block size (KB)"] = self.read_block_kb
+        results_json["Read blocks"] = len(self.read_results)
+        results_json["Read time (sec)"] = round(sum(self.read_results),2)
+        results_json["Read bandwidth in MB/s"] = round(self.write_mb / sum(self.read_results),2)
+        results_json["Read IOPS"] = round(len(self.read_results) / sum(self.read_results), 0)
+        return results_json
 
 def init_odbc(cx_string):
     cnxn = pyodbc.connect(cx_string)
@@ -293,7 +378,7 @@ def get_default_gateway():
     except Exception as e:
         return str(e)
 
-# Route to uplode file and return file size
+# Route to upload file and return file size
 @app.route('/api/filesize', methods=['POST'])
 def getsize():
     try:
@@ -310,6 +395,31 @@ def getsize():
       return jsonify(msg)
     except Exception as e:
         return jsonify(str(e))
+
+# Measure disk I/O performance
+@app.route('/api/ioperf', methods=['GET'])
+def ioperf():
+    if request.method == 'GET':
+        FILE = "/tmp/iotest"
+        SIZE = 128
+        WRITE_BLOCK_SIZE = 128
+        READ_BLOCK_SIZE = 8
+        try:
+            if request.args.get('file'):
+                FILE = urllib.parse.unquote(request.args.get('file'))
+            if request.args.get('size'):
+                SIZE = int(request.args.get('size'))
+            if request.args.get('writeblocksize'):
+                WRITE_BLOCK_SIZE = int(request.args.get('writeblocksize'))
+            if request.args.get('readblocksize'):
+                READ_BLOCK_SIZE = int(request.args.get('readblocksize'))
+            app.logger.info("Running I/O benchmark on file {0}, size {1}MB, write block size {2}KB and read block size {3}KB...".format(FILE, str(SIZE), str(WRITE_BLOCK_SIZE), str(READ_BLOCK_SIZE)))
+            benchmark = Benchmark(FILE, SIZE, WRITE_BLOCK_SIZE, READ_BLOCK_SIZE)
+            benchmark_result = benchmark.get_json_result()
+            return jsonify(benchmark_result)
+
+        except Exception as e:
+            return jsonify(str(e))
 
 # Flask route for healthchecks
 @app.route("/api/healthcheck", methods=['GET'])
@@ -492,7 +602,7 @@ def pi():
         if DIGITS == None:
             DIGITS = 10000
         digits = [str(n) for n in list(pi_digits(DIGITS))]
-        pi_str = "%s.%s\n" % (digits.pop(0), "".join(digits))
+        pi_str = "%s.%s" % (digits.pop(0), "".join(digits))
         msg = {
                 'pi': pi_str
         }          
