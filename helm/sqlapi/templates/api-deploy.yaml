@@ -1,0 +1,35 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  labels:
+    run: api
+    {{- include "sqlapi.labels" . | nindent 4 }}
+  name: api
+spec:
+  replicas: {{ .Values.api.replicas }}
+  selector:
+    matchLabels:
+      run: api
+  template:
+    metadata:
+      labels:
+        run: api
+        {{- include "sqlapi.labels" . | nindent 8 }}
+    spec:
+      containers:
+      - image: "{{ .Values.api.image }}"
+        name: api
+        ports:
+        - containerPort: 8080
+          protocol: TCP
+        env:
+        - name: SQL_SERVER_USERNAME
+          value: "{{ .Values.db.username}}"
+        - name: SQL_SERVER_FQDN
+          value: "{{ .Values.db.fqdn}}"
+        - name: SQL_SERVER_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: sqlpassword
+              key: password
+      restartPolicy: Always

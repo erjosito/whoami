@@ -36,32 +36,25 @@ class Benchmark:
         self.write_results = self.write_test (1024 * self.write_block_kb, wr_blocks)
         self.read_results = self.read_test (1024 * self.read_block_kb, rd_blocks)
 
-    def write_test(self, block_size, blocks_count, show_progress=True):
+    def write_test(self, block_size, blocks_count):
         '''
         Tests write speed by writing random blocks, at total quantity
         of blocks_count, each at size of block_size bytes to disk.
         Function returns a list of write times in sec of each block.
         '''
         f = os.open(self.file, os.O_CREAT | os.O_WRONLY, 0o777)  # low-level I/O
-
         took = []
         for i in range(blocks_count):
-            if show_progress:
-                # dirty trick to actually print progress on each iteration
-                sys.stdout.write('\rWriting: {:.2f} %'.format(
-                    (i + 1) * 100 / blocks_count))
-                sys.stdout.flush()
             buff = os.urandom(block_size)
             start = time.time()
             os.write(f, buff)
             os.fsync(f)  # force write to disk
             t = time.time() - start
             took.append(t)
-
         os.close(f)
         return took
 
-    def read_test(self, block_size, blocks_count, show_progress=True):
+    def read_test(self, block_size, blocks_count):
         '''
         Performs read speed test by reading random offset blocks from
         file, at maximum of blocks_count, each at size of block_size
@@ -72,21 +65,14 @@ class Benchmark:
         # generate random read positions
         offsets = list(range(0, blocks_count * block_size, block_size))
         shuffle(offsets)
-
         took = []
         for i, offset in enumerate(offsets, 1):
-            if show_progress and i % int(self.write_block_kb / self.read_block_kb) == 0:
-                # read is faster than write, so try to equalize print period
-                sys.stdout.write('\rReading: {:.2f} %'.format(
-                    (i + 1) * 100 / blocks_count))
-                sys.stdout.flush()
             start = time.time()
             os.lseek(f, offset, os.SEEK_SET)  # set position
             buff = os.read(f, block_size)  # read from position
             t = time.time() - start
             if not buff: break  # if EOF reached
             took.append(t)
-
         os.close(f)
         return took
 
@@ -97,12 +83,12 @@ class Benchmark:
         results_json["Write block size (KB)"] = self.write_block_kb
         results_json["Written blocks"] = len(self.write_results)
         results_json["Write time (sec)"] = round(sum(self.write_results), 2)
-        results_json["Write bandwidth in MB/s"] = round(self.write_mb / sum(self.write_results), 2)
+        results_json["Write bandwidth in MiB/s"] = round(self.write_mb / sum(self.write_results), 2)
         results_json["Write IOPS"] = round(len(self.write_results) / sum(self.write_results), 0)
         results_json["Read block size (KB)"] = self.read_block_kb
         results_json["Read blocks"] = len(self.read_results)
         results_json["Read time (sec)"] = round(sum(self.read_results),2)
-        results_json["Read bandwidth in MB/s"] = round(self.write_mb / sum(self.read_results),2)
+        results_json["Read bandwidth in MiB/s"] = round(self.write_mb / sum(self.read_results),2)
         results_json["Read IOPS"] = round(len(self.read_results) / sum(self.read_results), 0)
         return results_json
 

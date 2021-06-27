@@ -1,0 +1,28 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  labels:
+    run: web
+    {{- include "sqlapi.labels" . | nindent 4 }}
+  name: web
+spec:
+  replicas: {{ .Values.web.replicas }}
+  selector:
+    matchLabels:
+      run: web
+  template:
+    metadata:
+      labels:
+        run: web
+        {{- include "sqlapi.labels" . | nindent 8 }}
+    spec:
+      containers:
+      - image: {{ .Values.web.image }}
+        name: web
+        ports:
+        - containerPort: 80
+          protocol: TCP
+        env:
+        - name: API_URL
+          value: "http://api:{{ .Values.api.service.port }}"
+      restartPolicy: Always

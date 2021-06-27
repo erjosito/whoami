@@ -1,0 +1,2 @@
+NOTE: It may take a few minutes for the LoadBalancer IPs to be available.
+      You can watch the status of by running 'kubectl get --namespace {{ .Release.Namespace }} svc -w {{ include "sqlapi.fullname" . }}'
