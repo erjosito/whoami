@@ -14,6 +14,9 @@ from flask import Flask
 from flask import request
 from flask import jsonify
 
+from azure.keyvault.secrets import SecretClient
+from azure.identity import DefaultAzureCredential
+
 # If not using SQL APIs, pyodbc and pymysql are not required and could not be installed
 # If pyodbc is not correclty imported the Azure SQL DB calls will break
 # If pymysql is not correclty imported the Azure SQL DB for MySQL calls will break
@@ -177,6 +180,31 @@ def send_sql_query(sql_server_fqdn = None, sql_server_db = None, sql_server_user
         sql_server_username = get_variable_value('SQL_SERVER_USERNAME')
     if sql_server_password == None:
         sql_server_password = get_variable_value('SQL_SERVER_PASSWORD')
+        # If still no password could be retrieved from the envvars, try to get it from AKV
+        if not sql_server_password:
+            akv_name = get_variable_value('AKV_NAME')
+            akv_secret_name = get_variable_value('AKV_SECRET_NAME')
+            if akv_name and akv_secret_name:
+                akv_uri = f"https://{akv_name}.vault.azure.net"
+                try:
+                    app.logger.info('Authenticating to Azure...')
+                    azure_credential = DefaultAzureCredential()
+                    app.logger.info('Creating AKV client...')
+                    akv_client = SecretClient(vault_url=akv_uri, credential=azure_credential)
+                    app.logger.info('Getting secret value from AKV...')
+                    akv_secret = akv_client.get_secret(akv_secret_name)
+                    sql_server_password = akv_secret.value
+                    sql_server_password_length = len(sql_server_password)
+                    app.logger.info('Database password {1} successfully retrieved from Azure Key Vault {0}...'.format(akv_name, '*' * sql_server_password_length))
+                except Exception as e:
+                    error_msg = 'Error trying to retrieve database password from secret {0} in Azure Key Vault {1}'.format(akv_secret_name, akv_name)
+                    app.logger.info(error_msg)
+                    app.logger.error(e)
+                    return error_msg
+            else:
+                error_msg = 'No SQL_SERVER_PASSWORD or AKV_NAME+AKV_SECRET_NAME provided'
+                app.logger.error(error_msg)
+                return error_msg
     if use_ssl == None:
         use_ssl = get_variable_value('USE_SSL')
         if use_ssl == None:
@@ -461,6 +489,7 @@ def sqlversion():
         except Exception as e:
           return jsonify(str(e))
 
+# Return source IP of a SQL query as reported by the database
 @app.route("/api/sqlsrcip", methods=['GET'])
 def sqlsrcip():
     if request.method == 'GET':
@@ -493,6 +522,7 @@ def sqlsrcip():
         except Exception as e:
           return jsonify(str(e))
 
+# Creates a table to log in the database connection attemtps
 @app.route("/api/sqlsrcipinit", methods=['GET'])
 def sqlsrcipinit():
     if request.method == 'GET':
@@ -528,7 +558,7 @@ def sqlsrcipinit():
         except Exception as e:
           return jsonify(str(e))
 
-
+# Stores the source IP in a table in the database
 @app.route("/api/sqlsrciplog", methods=['GET'])
 def sqlsrciplog():
     if request.method == 'GET':
@@ -674,6 +704,29 @@ def printenv():
     if request.method == 'GET':
         try:
             return jsonify(dict(os.environ))
+        except Exception as e:
+            return jsonify(str(e))
+
+# Flask route to query Azure Key Vault for a secret
+@app.route("/api/akvsecret", methods=['GET'])
+def akvsecret():
+    if request.method == 'GET':
+        try:
+            akv_name = request.args.get('akvname')
+            akv_secret_name = request.args.get('akvsecret')
+            akv_uri = f"https://{akv_name}.vault.azure.net"
+            app.logger.info('Authenticating to Azure...')
+            azure_credential = DefaultAzureCredential()
+            app.logger.info('Creating AKV client...')
+            akv_client = SecretClient(vault_url=akv_uri, credential=azure_credential)
+            app.logger.info('Getting secret value from AKV...')
+            akv_secret = akv_client.get_secret(akv_secret_name)
+            msg = {
+                'akv_name': akv_name,
+                'akv_secret_name': akv_secret_name,
+                'akv_secret_value': str(akv_secret.value)
+            }
+            return jsonify(msg)
         except Exception as e:
             return jsonify(str(e))
 

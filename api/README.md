@@ -15,6 +15,7 @@ Here you can find the source files to build this container. The container is a w
 * `/api/ioperf`: runs a quick performance check on the file system. It takes these parameters: `file` (default "/tmp/iotest"), `size` (default 128, in MB), `writeblocksize` (default 128, in KB) and `readblocksize` (default 8, in KB)
 * `/api/sqlsrcipinit`: the previous endpoints do not modify the database. If you want to modify the database, you need first to create a table with this endpoint
 * `/api/sqlsrciplog`: this endpoint will create a new record in the table created with the previous endpoint (`sqlsrcipinit`) with a timestamp and the source IP address as seen by the database.
+* `/api/akvsecret`: this endpoint will try to retrieve a secret from an Azure Key Vault. It requires the parameters `akvname` and `akvsecret`.
 
 The container requires these environment variables :
 
@@ -90,6 +91,47 @@ sql_password=your_db_admin_password
 az container create -n api -g $rg \
     -e "SQL_SERVER_USERNAME=$sql_username" "SQL_SERVER_PASSWORD=$sql_password" "SQL_SERVER_FQDN=$sql_server_fqdn" \
     --image fasthacks/sqlapi:1.0 --ip-address public --ports 8080
+```
+
+If running the image from your own Azure Container Registry:
+
+```bash
+# Deploy API on ACI from ACR
+acr_name=<your_ACR>
+az acr update -n "$acr_name" --admin-enabled true
+acr_usr=$(az acr credential show -n "$acr_name" -g "$rg" --query 'username' -o tsv)
+acr_pwd=$(az acr credential show -n "$acr_name" -g "$rg" --query 'passwords[0].value' -o tsv)
+az container create -n api -g $rg  \
+    -e "SQL_SERVER_USERNAME=${sql_username}" "SQL_SERVER_PASSWORD=${sql_password}" "SQL_SERVER_FQDN=${sql_server_fqdn}" \
+    --image "${acr_name}.azurecr.io/sqlapi:1.0" --ip-address public --ports 8080 \
+    --registry-username "$acr_usr" --registry-password "$acr_pwd"
+```
+
+If testing access to Azure Key Vault, you might want to deploy the image in an ACI associated to a managed identity, and instead of supplying a database password you can provide a Key Vault and secret name:
+
+```bash
+# Deploy API on ACI with managed identity
+rg=<your_resource_group>
+akv_name=<your_azure_keyvault>
+akv_secret_name=<your_db_password_akv_secret_name>
+identity_name=myACIid
+az identity create -n $identity_name -g $rg
+identity_spid=$(az identity show -g $rg -n $identity_name --query principalId -o tsv)
+identity_appid=$(az identity show -g $rg -n $identity_name --query clientId -o tsv)
+identity_id=$(az identity show -g $rg -n $identity_name --query id -o tsv)
+az keyvault set-policy -n $akv_name -g $rg --object-id $identity_spid --secret-permissions get list
+az container create -n api -g $rg \
+    -e "SQL_SERVER_USERNAME=$sql_username" "SQL_SERVER_FQDN=$sql_server_fqdn" "AKV_NAME=$akv_name" "AKV_SECRET_NAME=$akv_secret_name" \
+    --image fasthacks/sqlapi:1.0 --ip-address public --ports 8080 --assign-identity $identity_id
+```
+
+In any case, you might need to open up the SQL Server firewall to the egress IP address of the Azure Container Instance. Note that the egress IP of an Azure Container Instance is not necessarily the same as the inbound public IP address associated to the container, so you can use the `api/ip` endpoint of the application to find it out:
+
+```bash
+# Update Azure SQL Server IP firewall with ACI container IP
+api_ip=$(az container show -n api -g "$rg" --query ipAddress.ip -o tsv)
+api_egress_ip=$(curl -s "http://${api_ip}:8080/api/ip" | jq -r .my_public_ip)
+az sql server firewall-rule create -g "$rg" -s "$sql_server_name" -n public_api_aci-source --start-ip-address "$api_egress_ip" --end-ip-address "$api_egress_ip"
 ```
 
 ### Run this image in Kubernetes
