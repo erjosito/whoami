@@ -17,13 +17,15 @@ Here you can find the source files to build this container. The container is a w
 * `/api/sqlsrciplog`: this endpoint will create a new record in the table created with the previous endpoint (`sqlsrcipinit`) with a timestamp and the source IP address as seen by the database.
 * `/api/akvsecret`: this endpoint will try to retrieve a secret from an Azure Key Vault. It requires the parameters `akvname` and `akvsecret`.
 
-The container requires these environment variables :
+The container supports these environment variables:
 
 * `SQL_SERVER_FQDN`: FQDN of the SQL server
 * `SQL_SERVER_DB` (optional): FQDN of the SQL server
 * `SQL_SERVER_USERNAME`: username for the SQL server
 * `SQL_SERVER_PASSWORD`: password for the SQL server
 * `SQL_ENGINE`: can be either `sqlserver`, `mysql` or `postgres`
+* `AKV_NAME` (optional): if not specifying a password to access the database, you can supply the name of an Azure Key Vault to retrieve it from
+* `AKV_SECRET_NAME` (optional): if not specifying a password to access the database, you can supply the name of a secret in an Azure Key Vault to retrieve it from
 * `PORT` (optional): TCP port where the web server will be listening (8080 per default)
 
 Note that environment variables can also be injected as files in the `/secrets` directory.

@@ -1,4 +1,5 @@
-FROM centos:latest
+#FROM centos:latest
+FROM rockylinux:latest
 MAINTAINER Jose Moreno <jose.moreno@microsoft.com>
 
 # Install apache, PHP, and supplimentary programs. openssh-server, curl, and lynx-cur are for debugging the container.
