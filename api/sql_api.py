@@ -359,6 +359,15 @@ def get_ip(d):
     except Exception:
         return False
 
+# Get IP for a DNS name
+def reverse_dns(ip):
+    try:
+        return socket.gethostbyaddr(ip)
+    except Exception:
+        return False
+
+
+# Start flask app
 app = Flask(__name__)
 
 
@@ -626,7 +635,7 @@ def pi():
     except Exception as e:
         return jsonify(str(e))
 
-# Flask route to provide the container's IP address
+# Flask route to resolve a name over DNS
 @app.route("/api/dns", methods=['GET'])
 def dns():
     try:
@@ -639,7 +648,20 @@ def dns():
         return jsonify(msg)
     except Exception as e:
         return jsonify(str(e))
-        
+
+# Flask route to reverse DNS an IP
+@app.route("/api/reversedns", methods=['GET'])
+def reversedns():
+    try:
+        ip = request.args.get('ip')
+        fqdn = reverse_dns(ip)
+        msg = {
+                'ip': ip,
+                'fqdn': fqdn
+        }          
+        return jsonify(msg)
+    except Exception as e:
+        return jsonify(str(e))
 
 # Flask route to provide the container's IP address
 @app.route("/api/ip", methods=['GET'])
